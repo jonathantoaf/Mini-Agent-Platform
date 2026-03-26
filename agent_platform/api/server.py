@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from agent_platform.api.routers import (
     health_router,
     index_router,
+    tool_router,
 )
 from agent_platform.containers import Container
 from agent_platform.settings import get_settings
@@ -23,8 +24,12 @@ def create_container() -> Container:
     container = Container()
     config_path = os.path.join(settings.root_dir, "config.yaml")
     container.config.from_yaml(config_path, required=True)
+    container.config.database_url.from_value(settings.database_url)
+    container.config.database_pool_size.from_value(settings.database_pool_size)
+    container.config.database_max_overflow.from_value(settings.database_max_overflow)
+    container.config.debug.from_value(settings.debug)
     container.init_resources()
-    container.wire(modules=[index_router, health_router])
+    container.wire(modules=[index_router, health_router, tool_router])
     return container
 
 
@@ -45,6 +50,7 @@ def create_app() -> FastAPI:
     _app.extra = {"container": container}
     _app.include_router(index_router.router)
     _app.include_router(health_router.router)
+    _app.include_router(tool_router.router, prefix="/api/v1")
 
     logger.info(f"FastAPI server {settings.app_name} v{settings.app_version} is up and running!")
 

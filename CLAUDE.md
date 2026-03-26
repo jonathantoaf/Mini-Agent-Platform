@@ -4,7 +4,7 @@
 
 Multi-tenant backend API for managing AI agents with configurable tools. Agents can be run through a mock LLM pipeline that supports multi-step tool calling, prompt injection guardrails, and execution history tracking.
 
-**Tech Stack**: Python 3.12+, FastAPI, SQLAlchemy 2.0 async (asyncpg), PostgreSQL 16, Alembic, Pydantic v2, uv
+**Tech Stack**: Python 3.12+, FastAPI, SQLAlchemy 2.0 async (asyncpg), PostgreSQL 16, Alembic, Pydantic v2, dependency-injector, uv
 
 ## Architecture
 
@@ -14,15 +14,39 @@ Multi-tenant backend API for managing AI agents with configurable tools. Agents 
 Router (FastAPI) → Service (business logic) → Repository (data access) → DB Model (SQLAlchemy)
 ```
 
-- **Routers** (`api/routers/`): HTTP endpoints, Pydantic validation, DI via `Depends()`
+- **Routers** (`api/routers/`): HTTP endpoints, Pydantic validation, DI via `Depends()` factory functions
 - **Services** (`services/`): Business logic, orchestrates repositories
 - **Repositories** (`repositories/`): SQLAlchemy queries, cursor-based pagination, tenant filtering
 - **DB Models** (`db/models/`): SQLAlchemy ORM models with UUID PKs
 
+### Dependency Injection
+
+**Container** (`containers.py`): Manages DB engine lifecycle and session factory.
+
+```python
+class Container(containers.DeclarativeContainer):
+    config = providers.Configuration()
+    db_engine = providers.Resource(init_engine, ...)      # created on startup, disposed on shutdown
+    session_factory = providers.Singleton(async_sessionmaker, bind=db_engine, ...)
+```
+
+**Per-request session** (`db/session.py`): Injected via `@inject` + `Provide[Container.session_factory]`, yields an `AsyncSession` with commit/rollback lifecycle.
+
+**Router DI**: Per-request services use `Depends()` factories that receive the session:
+
+```python
+def get_tool_service(
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> ToolService:
+    return ToolService(ToolRepository(session))
+```
+
+**Wiring**: All modules using `@inject` must be listed in `container.wire()` in `server.py`.
+
 ### Multi-Tenancy
 
 - Auth via `X-API-Key` header → tenant_id lookup (`auth/api_key.py`)
-- `TenantId` type alias for route dependencies (mirrors `CurrentUserId` pattern)
+- `TenantId` type alias for route dependencies
 - All DB queries filtered by `tenant_id` at repository layer
 - PostgreSQL RLS as a database-level safety net
 
@@ -32,14 +56,13 @@ Router (FastAPI) → Service (business logic) → Repository (data access) → D
 - **Cursor-based pagination** via `data_models/pagination.py` (encode_cursor/decode_cursor + PaginatedResponse[T])
 - **Settings** via `get_settings()` cached singleton (pydantic-settings with .env)
 - **Async DB sessions** via `db/session.py` (get_async_session dependency)
-- **Manual DI** via FastAPI `Depends()` factory functions in routers (no container auto-wiring for domain code)
 - **Service exceptions** caught by routers and converted to HTTP errors
 
 ## Development Workflows
 
 ```sh
 # Start PostgreSQL
-docker-compose up -d
+docker-compose up -d postgres
 
 # Install dependencies
 uv sync
@@ -57,7 +80,7 @@ uv run poe check
 uv run poe format      # Format code with ruff
 uv run poe lint        # Lint code with ruff (with auto-fix)
 uv run poe typecheck   # Type check with ty
-uv run poe test        # Run tests with pytest (80% coverage required)
+uv run poe test        # Run tests with pytest
 uv run poe check-fast  # Checks without tests
 
 # Generate new migration
@@ -86,7 +109,7 @@ uv run alembic revision --autogenerate -m "description"
 
 ### New Service
 1. Create in `services/new_service.py`
-2. Define domain exceptions in a dedicated exceptions module
+2. Define domain exceptions in `services/exceptions.py`
 
 ### New Router
 1. Create in `api/routers/new_router.py`
@@ -110,7 +133,6 @@ class MyModel(SharedBaseModel):
 - `TestClient` from FastAPI for API/integration tests
 - pytest fixtures in `conftest.py`
 - Mock external dependencies with `pytest-mock`
-- 80% coverage minimum (branch coverage enabled)
 - Two test API keys in test config for tenant isolation testing
 
 ## Exercise Requirements
@@ -124,7 +146,6 @@ This project implements a Mini Agent Platform with:
 
 ### API Design
 - All endpoints under `/api/v1/`
-- OpenAI-compatible message format (role/content/tool_calls/tool_call_id)
 - Cursor-based pagination on all list endpoints
 - 404 (not 403) for cross-tenant resource access attempts
 
@@ -134,28 +155,29 @@ This project implements a Mini Agent Platform with:
 Mini-Agent-Platform/
 ├── agent_platform/
 │   ├── api/
-│   │   ├── routers/           # FastAPI route handlers
-│   │   ├── server.py          # App factory, middleware
-│   │   └── static/            # Swagger/ReDoc assets
+│   │   ├── routers/              # FastAPI route handlers
+│   │   ├── server.py             # App factory, middleware
+│   │   └── static/               # Swagger/ReDoc assets
 │   ├── auth/
-│   │   └── api_key.py         # API key → tenant_id auth
+│   │   └── api_key.py            # API key → tenant_id auth
 │   ├── data_models/
-│   │   ├── base.py            # SharedBaseModel (camelCase)
-│   │   └── pagination.py      # Cursor-based pagination
+│   │   ├── base.py               # SharedBaseModel (camelCase)
+│   │   └── pagination.py         # Cursor-based pagination
 │   ├── db/
-│   │   ├── base.py            # SQLAlchemy Base
-│   │   ├── models/            # ORM models
-│   │   └── session.py         # Async session factory
-│   ├── repositories/          # Data access layer
-│   ├── services/              # Business logic
-│   ├── exceptions/            # Domain exceptions
-│   ├── settings.py            # Pydantic BaseSettings
-│   └── containers.py          # DI container (logging)
-├── alembic/                   # Database migrations
-├── tests/                     # Mirrors source structure
-├── docker-compose.yml         # PostgreSQL
-├── Dockerfile                 # Multi-stage build
-└── pyproject.toml             # Dependencies & tooling
+│   │   ├── base.py               # SQLAlchemy Base
+│   │   ├── models/               # ORM models
+│   │   └── session.py            # Async session factory
+│   ├── repositories/             # Data access layer
+│   ├── services/
+│   │   ├── tool_service.py       # Tool CRUD
+│   │   └── exceptions.py         # Domain exceptions
+│   ├── containers.py             # DI container (DB engine, session factory)
+│   └── settings.py               # Pydantic BaseSettings
+├── alembic/                      # Database migrations
+├── tests/                        # Mirrors source structure
+├── docker-compose.yml            # PostgreSQL + app
+├── Dockerfile                    # Multi-stage build
+└── pyproject.toml                # Dependencies & tooling
 ```
 
 ## Environment Variables

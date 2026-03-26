@@ -1,0 +1,113 @@
+from collections.abc import AsyncIterator
+from typing import Annotated
+
+from dependency_injector.wiring import Provide, inject
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from agent_platform.auth.api_key import TenantId
+from agent_platform.containers import Container
+from agent_platform.data_models.pagination import PaginatedResponse
+from agent_platform.data_models.tool import ToolCreate, ToolResponse, ToolUpdate
+from agent_platform.db.session import Database
+from agent_platform.repositories.tool_repository import ToolRepository
+from agent_platform.services.exceptions import ToolAlreadyExistsError, ToolNotFoundError
+from agent_platform.services.tool_service import ToolService
+
+router = APIRouter(prefix="/tools", tags=["Tools"])
+
+
+@inject
+async def get_session(
+    db: Database = Depends(Provide[Container.db]),
+) -> AsyncIterator[AsyncSession]:
+    async for session in db.session():
+        yield session
+
+
+def get_tool_service(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ToolService:
+    return ToolService(ToolRepository(session))
+
+
+@router.post("", response_model=ToolResponse, status_code=status.HTTP_201_CREATED)
+async def create_tool(
+    tenant_id: TenantId,
+    data: ToolCreate,
+    service: Annotated[ToolService, Depends(get_tool_service)],
+) -> ToolResponse:
+    try:
+        return await service.create_tool(tenant_id, data)
+    except ToolAlreadyExistsError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A tool with this name already exists.",
+        ) from None
+
+
+@router.get("", response_model=PaginatedResponse[ToolResponse])
+async def list_tools(
+    tenant_id: TenantId,
+    service: Annotated[ToolService, Depends(get_tool_service)],
+    cursor: str | None = Query(None, description="Pagination cursor"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    agent_name: str | None = Query(None, description="Filter by agent name"),
+) -> PaginatedResponse[ToolResponse]:
+    return await service.list_tools(
+        tenant_id=tenant_id,
+        limit=limit,
+        cursor=cursor,
+        agent_name=agent_name,
+    )
+
+
+@router.get("/{tool_id}", response_model=ToolResponse)
+async def get_tool(
+    tenant_id: TenantId,
+    tool_id: str,
+    service: Annotated[ToolService, Depends(get_tool_service)],
+) -> ToolResponse:
+    try:
+        return await service.get_tool(tenant_id, tool_id)
+    except ToolNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tool not found.",
+        ) from None
+
+
+@router.patch("/{tool_id}", response_model=ToolResponse)
+async def update_tool(
+    tenant_id: TenantId,
+    tool_id: str,
+    data: ToolUpdate,
+    service: Annotated[ToolService, Depends(get_tool_service)],
+) -> ToolResponse:
+    try:
+        return await service.update_tool(tenant_id, tool_id, data)
+    except ToolNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tool not found.",
+        ) from None
+    except ToolAlreadyExistsError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A tool with this name already exists.",
+        ) from None
+
+
+@router.delete("/{tool_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_tool(
+    tenant_id: TenantId,
+    tool_id: str,
+    service: Annotated[ToolService, Depends(get_tool_service)],
+) -> None:
+    try:
+        await service.delete_tool(tenant_id, tool_id)
+    except ToolNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tool not found.",
+        ) from None

@@ -1,40 +1,33 @@
-"""Async database session management."""
+from collections.abc import AsyncIterator
 
-import logging
-from collections.abc import AsyncGenerator
-
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-from agent_platform.settings import get_settings
-
-logger = logging.getLogger(__name__)
-
-settings = get_settings()
-
-engine = create_async_engine(
-    settings.database_url,
-    pool_size=settings.database_pool_size,
-    max_overflow=settings.database_max_overflow,
-    echo=settings.debug,
-)
-
-async_session_factory = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
 )
 
 
-async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
-    """Yield an async database session.
+class Database:
+    def __init__(self, db_url: str, pool_size: int, max_overflow: int, debug: bool) -> None:
+        self._engine = create_async_engine(
+            db_url,
+            pool_size=pool_size,
+            max_overflow=max_overflow,
+            echo=debug,
+        )
+        self._session_factory = async_sessionmaker(
+            self._engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
 
-    Commits on success, rolls back on error, and always closes.
-    """
-    async with async_session_factory() as session:
+    async def session(self) -> AsyncIterator[AsyncSession]:
+        """Yield a per-request session. Commits on success, rolls back on error."""
+        session: AsyncSession = self._session_factory()
         try:
             yield session
             await session.commit()
-        except Exception:
+        except Exception:  # pragma: no cover — DB error safety net
             await session.rollback()
             raise
         finally:
