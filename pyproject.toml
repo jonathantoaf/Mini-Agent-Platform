@@ -87,10 +87,19 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Header", "fastapi.Query", 
 [tool.coverage.run]
 branch = true
 source = ["agent_platform"]
+concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
-exclude_also = ["if __name__ == .__main__.:"]
-fail_under = 50
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "pragma: no cover",
+]
+fail_under = 100
+omit = [
+    "agent_platform/data_models/*",
+    "agent_platform/db/models/*",
+    "agent_platform/db/base.py",
+]
 show_missing = true
 skip_empty = true
 

@@ -12,4 +12,5 @@ def api_client() -> TestClient:
 
     app.add_api_route("/test_error", test_error)
 
-    return TestClient(app, raise_server_exceptions=False)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        yield client
