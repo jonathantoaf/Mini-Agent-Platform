@@ -7,8 +7,8 @@ from sqlalchemy.exc import IntegrityError
 from agent_platform.data_models.pagination import encode_cursor
 from agent_platform.data_models.tool import ToolCreate, ToolResponse, ToolUpdate
 from agent_platform.db.models.tool import Tool
+from agent_platform.exceptions import ToolAlreadyExistsError, ToolNotFoundError
 from agent_platform.repositories.tool_repository import ToolRepository
-from agent_platform.services.exceptions import ToolAlreadyExistsError, ToolNotFoundError
 from agent_platform.services.tool_service import ToolService
 
 
@@ -182,6 +182,17 @@ async def test_update_tool_empty_body(service: ToolService, repo: AsyncMock) -> 
     result = await service.update_tool("tenant_1", "t1", ToolUpdate())
 
     assert isinstance(result, ToolResponse)
+
+
+@pytest.mark.asyncio
+async def test_update_tool_null_name_ignored(service: ToolService, repo: AsyncMock) -> None:
+    tool = _make_tool(name="original")
+    repo.get_by_id.return_value = tool
+    repo.update.return_value = tool
+
+    await service.update_tool("tenant_1", "t1", ToolUpdate(name=None))
+
+    assert tool.name == "original"
 
 
 @pytest.mark.asyncio

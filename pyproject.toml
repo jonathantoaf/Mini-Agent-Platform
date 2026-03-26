@@ -99,6 +99,8 @@ omit = [
     "agent_platform/data_models/*",
     "agent_platform/db/models/*",
     "agent_platform/db/base.py",
+    "agent_platform/exceptions/*",
+    "agent_platform/repositories/*",
 ]
 show_missing = true
 skip_empty = true

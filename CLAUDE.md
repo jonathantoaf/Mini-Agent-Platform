@@ -36,9 +36,14 @@ class Container(containers.DeclarativeContainer):
 
 ```python
 def get_tool_service(
-    session: Annotated[AsyncSession, Depends(get_async_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ToolService:
     return ToolService(ToolRepository(session))
+
+def get_agent_service(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> AgentService:
+    return AgentService(AgentRepository(session), session)
 ```
 
 **Wiring**: All modules using `@inject` must be listed in `container.wire()` in `server.py`.
@@ -53,11 +58,14 @@ def get_tool_service(
 ### Key Patterns
 
 - **Pydantic models** extend `SharedBaseModel` from `data_models/base.py` (auto camelCase serialization)
-- **Cursor-based pagination** via `data_models/pagination.py` (encode_cursor/decode_cursor + PaginatedResponse[T])
+- **Cursor-based pagination** via `data_models/pagination.py` (encode_cursor/decode_cursor + PaginatedResponse[T]); defaults configured in settings
+- **Configurable defaults** — all runtime defaults (pagination limits, etc.) come from `settings.py` via `get_settings()`, never hardcoded
 - **Settings** via `get_settings()` cached singleton (pydantic-settings with .env)
 - **Async DB sessions** via `db/session.py` (get_async_session dependency)
-- **Service exceptions** caught by routers and converted to HTTP errors
+- **Domain exceptions** in `exceptions/` package — naming convention: `<Entity>NotFoundError`, `<Entity>AlreadyExistsError`. Caught by routers and converted to HTTP errors. Can be split into per-domain modules as complexity grows.
+- **Error handling** — routers catch domain exceptions and map to HTTP codes (404, 409). Unhandled exceptions are caught by the global `exception_handler` in `server.py`, which logs the error and returns `{"detail": "Internal server error."}` with 500 status. All error responses use consistent JSON format `{"detail": "..."}`.
 - **Uniqueness enforcement** via DB constraints + `IntegrityError` catch in services (no app-level check-then-act — avoids TOCTOU races)
+- **Many-to-many relationships** — Agents ↔ Tools via `agent_tools` join table with CASCADE deletes. Agent model uses `lazy="selectin"` for eager loading. List queries use `result.unique().scalars()` to deduplicate rows from joins.
 
 ## Development Workflows
 
@@ -117,7 +125,7 @@ GitHub Actions workflow in `.github/workflows/ci.yml` runs on push to `main` and
 
 ### New Service
 1. Create in `services/new_service.py`
-2. Define domain exceptions in `services/exceptions.py`
+2. Define domain exceptions in `exceptions/__init__.py` using the convention `<Entity>NotFoundError`, `<Entity>AlreadyExistsError`
 
 ### New Router
 1. Create in `api/routers/new_router.py`
@@ -169,16 +177,19 @@ Mini-Agent-Platform/
 │   ├── auth/
 │   │   └── api_key.py            # API key → tenant_id auth
 │   ├── data_models/
+│   │   ├── agent.py              # Agent Create/Update/Response schemas
 │   │   ├── base.py               # SharedBaseModel (camelCase)
-│   │   └── pagination.py         # Cursor-based pagination
+│   │   ├── pagination.py         # Cursor-based pagination
+│   │   └── tool.py               # Tool Create/Update/Response schemas
 │   ├── db/
 │   │   ├── base.py               # SQLAlchemy Base
 │   │   ├── models/               # ORM models
 │   │   └── session.py            # Async session factory
 │   ├── repositories/             # Data access layer
+│   ├── exceptions/               # Domain exceptions (<Entity>NotFoundError, etc.)
 │   ├── services/
-│   │   ├── tool_service.py       # Tool CRUD
-│   │   └── exceptions.py         # Domain exceptions
+│   │   ├── agent_service.py      # Agent CRUD + tool assignment
+│   │   └── tool_service.py       # Tool CRUD
 │   ├── containers.py             # DI container (DB engine, session factory)
 │   └── settings.py               # Pydantic BaseSettings
 ├── alembic/                      # Database migrations
@@ -196,4 +207,6 @@ API_KEYS={"sk-tenant1-secret": "tenant_1", "sk-tenant2-secret": "tenant_2"}
 APP_NAME=agent-platform
 DEBUG=false
 LOG_LEVEL=INFO
+PAGINATION_DEFAULT_LIMIT=20
+PAGINATION_MAX_LIMIT=100
 ```

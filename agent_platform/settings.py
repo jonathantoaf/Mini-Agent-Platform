@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     database_pool_size: int = 5
     database_max_overflow: int = 10
 
+    # Pagination
+    pagination_default_limit: int = 20
+    pagination_max_limit: int = 100
+
     # Auth — JSON mapping of API keys to tenant IDs
     # Example: {"sk-tenant1-secret": "tenant_1", "sk-tenant2-secret": "tenant_2"}
     api_keys: str = "{}"

@@ -10,9 +10,10 @@ from agent_platform.containers import Container
 from agent_platform.data_models.pagination import PaginatedResponse
 from agent_platform.data_models.tool import ToolCreate, ToolResponse, ToolUpdate
 from agent_platform.db.session import Database
+from agent_platform.exceptions import ToolAlreadyExistsError, ToolNotFoundError
 from agent_platform.repositories.tool_repository import ToolRepository
-from agent_platform.services.exceptions import ToolAlreadyExistsError, ToolNotFoundError
 from agent_platform.services.tool_service import ToolService
+from agent_platform.settings import get_settings
 
 router = APIRouter(prefix="/tools", tags=["Tools"])
 
@@ -51,7 +52,12 @@ async def list_tools(
     tenant_id: TenantId,
     service: Annotated[ToolService, Depends(get_tool_service)],
     cursor: str | None = Query(None, description="Pagination cursor"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    limit: int = Query(
+        default=get_settings().pagination_default_limit,
+        ge=1,
+        le=get_settings().pagination_max_limit,
+        description="Items per page",
+    ),
     agent_name: str | None = Query(None, description="Filter by agent name"),
 ) -> PaginatedResponse[ToolResponse]:
     return await service.list_tools(

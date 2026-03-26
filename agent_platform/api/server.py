@@ -7,10 +7,11 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, Request, Response, status
 from fastapi.concurrency import iterate_in_threadpool
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from agent_platform.api.routers import (
+    agent_router,
     health_router,
     index_router,
     tool_router,
@@ -29,7 +30,7 @@ def create_container() -> Container:
     container.config.database_max_overflow.from_value(settings.database_max_overflow)
     container.config.debug.from_value(settings.debug)
     container.init_resources()
-    container.wire(modules=[index_router, health_router, tool_router])
+    container.wire(modules=[index_router, health_router, tool_router, agent_router])
     return container
 
 
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     _app.include_router(index_router.router)
     _app.include_router(health_router.router)
     _app.include_router(tool_router.router, prefix="/api/v1")
+    _app.include_router(agent_router.router, prefix="/api/v1")
 
     logger.info(f"FastAPI server {settings.app_name} v{settings.app_version} is up and running!")
 
@@ -61,10 +63,13 @@ app = create_app()
 
 
 @app.exception_handler(Exception)
-async def exception_handler(_: Request, error: Exception) -> None:
+async def exception_handler(_: Request, error: Exception) -> JSONResponse:
     logger = logging.getLogger(__name__)
     logger.exception(error)
-    raise error
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Internal server error."},
+    )
 
 
 static_folder = os.path.join(get_settings().root_dir, "api/static")
