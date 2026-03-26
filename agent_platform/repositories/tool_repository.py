@@ -24,15 +24,6 @@ class ToolRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_name(self, tenant_id: str, name: str) -> Tool | None:
-        result = await self._session.execute(
-            select(Tool).where(
-                Tool.tenant_id == tenant_id,
-                Tool.name == name,
-            )
-        )
-        return result.scalar_one_or_none()
-
     async def list_paginated(
         self,
         tenant_id: str,

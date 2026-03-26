@@ -1,3 +1,5 @@
+from sqlalchemy.exc import IntegrityError
+
 from agent_platform.data_models.pagination import (
     CursorData,
     PaginatedResponse,
@@ -15,16 +17,15 @@ class ToolService:
         self._repository = repository
 
     async def create_tool(self, tenant_id: str, data: ToolCreate) -> ToolResponse:
-        existing = await self._repository.get_by_name(tenant_id, data.name)
-        if existing:
-            raise ToolAlreadyExistsError
-
         tool = Tool(
             tenant_id=tenant_id,
             name=data.name,
             description=data.description,
         )
-        tool = await self._repository.create(tool)
+        try:
+            tool = await self._repository.create(tool)
+        except IntegrityError:
+            raise ToolAlreadyExistsError from None
         return self._to_response(tool)
 
     async def get_tool(self, tenant_id: str, tool_id: str) -> ToolResponse:
@@ -67,16 +68,16 @@ class ToolService:
         if not tool:
             raise ToolNotFoundError
 
-        if "name" in data.model_fields_set and data.name is not None and data.name != tool.name:
-            existing = await self._repository.get_by_name(tenant_id, data.name)
-            if existing:
-                raise ToolAlreadyExistsError
+        if "name" in data.model_fields_set and data.name is not None:
             tool.name = data.name
 
         if "description" in data.model_fields_set:
             tool.description = data.description
 
-        tool = await self._repository.update(tool)
+        try:
+            tool = await self._repository.update(tool)
+        except IntegrityError:
+            raise ToolAlreadyExistsError from None
         return self._to_response(tool)
 
     async def delete_tool(self, tenant_id: str, tool_id: str) -> None:

@@ -1,9 +1,8 @@
-"""Unit tests for ToolService with mocked repository."""
-
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from agent_platform.data_models.pagination import encode_cursor
 from agent_platform.data_models.tool import ToolCreate, ToolResponse, ToolUpdate
@@ -46,20 +45,18 @@ def _make_tool(
 
 @pytest.mark.asyncio
 async def test_create_tool(service: ToolService, repo: AsyncMock) -> None:
-    repo.get_by_name.return_value = None
     repo.create.return_value = _make_tool()
 
     result = await service.create_tool("tenant_1", ToolCreate(name="web-search"))
 
     assert isinstance(result, ToolResponse)
     assert result.name == "web-search"
-    repo.get_by_name.assert_awaited_once_with("tenant_1", "web-search")
     repo.create.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_create_tool_duplicate(service: ToolService, repo: AsyncMock) -> None:
-    repo.get_by_name.return_value = _make_tool()
+    repo.create.side_effect = IntegrityError("", params=None, orig=Exception())
 
     with pytest.raises(ToolAlreadyExistsError):
         await service.create_tool("tenant_1", ToolCreate(name="web-search"))
@@ -118,7 +115,6 @@ async def test_list_tools_with_results(service: ToolService, repo: AsyncMock) ->
 
 @pytest.mark.asyncio
 async def test_list_tools_with_cursor(service: ToolService, repo: AsyncMock) -> None:
-    """Passing a cursor string decodes it and forwards to repo."""
     repo.list_paginated.return_value = ([], False)
 
     cursor = encode_cursor(datetime(2026, 1, 1, tzinfo=UTC), "t1")
@@ -139,13 +135,12 @@ async def test_list_tools_with_cursor(service: ToolService, repo: AsyncMock) -> 
 async def test_update_tool_name(service: ToolService, repo: AsyncMock) -> None:
     tool = _make_tool()
     repo.get_by_id.return_value = tool
-    repo.get_by_name.return_value = None
     repo.update.return_value = tool
 
     result = await service.update_tool("tenant_1", "t1", ToolUpdate(name="renamed"))
 
     assert isinstance(result, ToolResponse)
-    repo.get_by_name.assert_awaited_once_with("tenant_1", "renamed")
+    assert tool.name == "renamed"
 
 
 @pytest.mark.asyncio
@@ -156,8 +151,7 @@ async def test_update_tool_description(service: ToolService, repo: AsyncMock) ->
 
     await service.update_tool("tenant_1", "t1", ToolUpdate(description="new desc"))
 
-    # No name uniqueness check when name not changed
-    repo.get_by_name.assert_not_awaited()
+    assert tool.description == "new desc"
 
 
 @pytest.mark.asyncio
@@ -166,18 +160,6 @@ async def test_update_tool_not_found(service: ToolService, repo: AsyncMock) -> N
 
     with pytest.raises(ToolNotFoundError):
         await service.update_tool("tenant_1", "missing", ToolUpdate(name="x"))
-
-
-@pytest.mark.asyncio
-async def test_update_tool_same_name(service: ToolService, repo: AsyncMock) -> None:
-    tool = _make_tool(name="unchanged")
-    repo.get_by_id.return_value = tool
-    repo.update.return_value = tool
-
-    await service.update_tool("tenant_1", "t1", ToolUpdate(name="unchanged"))
-
-    # Same name should not trigger uniqueness check
-    repo.get_by_name.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -199,7 +181,6 @@ async def test_update_tool_empty_body(service: ToolService, repo: AsyncMock) -> 
 
     result = await service.update_tool("tenant_1", "t1", ToolUpdate())
 
-    repo.get_by_name.assert_not_awaited()
     assert isinstance(result, ToolResponse)
 
 
@@ -207,7 +188,7 @@ async def test_update_tool_empty_body(service: ToolService, repo: AsyncMock) -> 
 async def test_update_tool_duplicate_name(service: ToolService, repo: AsyncMock) -> None:
     tool = _make_tool(name="old-name")
     repo.get_by_id.return_value = tool
-    repo.get_by_name.return_value = _make_tool(tool_id="other", name="taken")
+    repo.update.side_effect = IntegrityError("", params=None, orig=Exception())
 
     with pytest.raises(ToolAlreadyExistsError):
         await service.update_tool("tenant_1", "t1", ToolUpdate(name="taken"))
