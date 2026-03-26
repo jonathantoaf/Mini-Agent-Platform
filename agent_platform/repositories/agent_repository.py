@@ -7,21 +7,21 @@ from agent_platform.db.models.tool import Tool
 from agent_platform.settings import get_settings
 
 
-class ToolRepository:
+class AgentRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, tool: Tool) -> Tool:
-        self._session.add(tool)
+    async def create(self, agent: Agent) -> Agent:
+        self._session.add(agent)
         await self._session.flush()
-        await self._session.refresh(tool)
-        return tool
+        await self._session.refresh(agent)
+        return agent
 
-    async def get_by_id(self, tenant_id: str, tool_id: str) -> Tool | None:
+    async def get_by_id(self, tenant_id: str, agent_id: str) -> Agent | None:
         result = await self._session.execute(
-            select(Tool).where(
-                Tool.tenant_id == tenant_id,
-                Tool.id == tool_id,
+            select(Agent).where(
+                Agent.tenant_id == tenant_id,
+                Agent.id == agent_id,
             )
         )
         return result.scalar_one_or_none()
@@ -31,31 +31,31 @@ class ToolRepository:
         tenant_id: str,
         limit: int = get_settings().pagination_default_limit,
         cursor: CursorData | None = None,
-        agent_name: str | None = None,
-    ) -> tuple[list[Tool], bool]:
+        tool_name: str | None = None,
+    ) -> tuple[list[Agent], bool]:
         """Cursor-based pagination using (created_at, id) for stable ordering."""
-        conditions = [Tool.tenant_id == tenant_id]
+        conditions = [Agent.tenant_id == tenant_id]
 
         if cursor:
             conditions.append(
                 or_(
-                    Tool.created_at < cursor.created_at,
+                    Agent.created_at < cursor.created_at,
                     and_(
-                        Tool.created_at == cursor.created_at,
-                        Tool.id < cursor.id,
+                        Agent.created_at == cursor.created_at,
+                        Agent.id < cursor.id,
                     ),
                 )
             )
 
-        stmt = select(Tool).where(and_(*conditions))
+        stmt = select(Agent).where(and_(*conditions))
 
-        if agent_name:
-            stmt = stmt.join(agent_tools).join(Agent).where(Agent.name == agent_name)
+        if tool_name:
+            stmt = stmt.join(agent_tools).join(Tool).where(Tool.name == tool_name)
 
-        stmt = stmt.order_by(Tool.created_at.desc(), Tool.id.desc()).limit(limit + 1)
+        stmt = stmt.order_by(Agent.created_at.desc(), Agent.id.desc()).limit(limit + 1)
 
         result = await self._session.execute(stmt)
-        items = list(result.scalars().all())
+        items = list(result.unique().scalars().all())
 
         has_more = len(items) > limit
         if has_more:
@@ -63,11 +63,11 @@ class ToolRepository:
 
         return items, has_more
 
-    async def update(self, tool: Tool) -> Tool:
+    async def update(self, agent: Agent) -> Agent:
         await self._session.flush()
-        await self._session.refresh(tool)
-        return tool
+        await self._session.refresh(agent)
+        return agent
 
-    async def delete(self, tool: Tool) -> None:
-        await self._session.delete(tool)
+    async def delete(self, agent: Agent) -> None:
+        await self._session.delete(agent)
         await self._session.flush()

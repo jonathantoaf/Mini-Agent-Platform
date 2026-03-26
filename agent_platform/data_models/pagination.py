@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import Field
 
 from agent_platform.data_models.base import SharedBaseModel
+from agent_platform.settings import get_settings
 
 
 class CursorData(SharedBaseModel):
@@ -63,4 +64,9 @@ class PaginationParams(SharedBaseModel):
     """Pagination query parameters."""
 
     cursor: str | None = Field(None, description="Pagination cursor from previous response")
-    limit: int = Field(20, ge=1, le=100, description="Number of items per page")
+    limit: int = Field(
+        default=get_settings().pagination_default_limit,
+        ge=1,
+        le=get_settings().pagination_max_limit,
+        description="Number of items per page",
+    )

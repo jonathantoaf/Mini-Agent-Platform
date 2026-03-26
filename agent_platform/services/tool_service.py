@@ -8,8 +8,9 @@ from agent_platform.data_models.pagination import (
 )
 from agent_platform.data_models.tool import ToolCreate, ToolResponse, ToolUpdate
 from agent_platform.db.models.tool import Tool
+from agent_platform.exceptions import ToolAlreadyExistsError, ToolNotFoundError
 from agent_platform.repositories.tool_repository import ToolRepository
-from agent_platform.services.exceptions import ToolAlreadyExistsError, ToolNotFoundError
+from agent_platform.settings import get_settings
 
 
 class ToolService:
@@ -37,7 +38,7 @@ class ToolService:
     async def list_tools(
         self,
         tenant_id: str,
-        limit: int = 20,
+        limit: int = get_settings().pagination_default_limit,
         cursor: str | None = None,
         agent_name: str | None = None,
     ) -> PaginatedResponse[ToolResponse]:
@@ -68,11 +69,10 @@ class ToolService:
         if not tool:
             raise ToolNotFoundError
 
-        if "name" in data.model_fields_set and data.name is not None:
-            tool.name = data.name
-
-        if "description" in data.model_fields_set:
-            tool.description = data.description
+        for field in data.model_fields_set:
+            value = getattr(data, field)
+            if value is not None or field == "description":
+                setattr(tool, field, value)
 
         try:
             tool = await self._repository.update(tool)
