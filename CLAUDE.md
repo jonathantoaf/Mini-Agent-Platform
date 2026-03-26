@@ -57,6 +57,7 @@ def get_tool_service(
 - **Settings** via `get_settings()` cached singleton (pydantic-settings with .env)
 - **Async DB sessions** via `db/session.py` (get_async_session dependency)
 - **Service exceptions** caught by routers and converted to HTTP errors
+- **Uniqueness enforcement** via DB constraints + `IntegrityError` catch in services (no app-level check-then-act — avoids TOCTOU races)
 
 ## Development Workflows
 
@@ -86,6 +87,13 @@ uv run poe check-fast  # Checks without tests
 # Generate new migration
 uv run alembic revision --autogenerate -m "description"
 ```
+
+### CI/CD
+
+GitHub Actions workflow in `.github/workflows/ci.yml` runs on push to `main` and all PRs.
+
+- **`check`** — PostgreSQL 16 service container + `uv run alembic upgrade head` + `uv run poe check`
+- **`build`** — Verifies Docker image builds (no push), uses GHA cache for layers
 
 ## Code Standards
 
