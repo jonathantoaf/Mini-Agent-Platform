@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
@@ -14,6 +15,7 @@ from agent_platform.exceptions import (
     ToolNotFoundError,
 )
 from agent_platform.repositories.agent_repository import AgentRepository
+from agent_platform.repositories.tool_repository import ToolRepository
 from agent_platform.services.agent_service import AgentService
 
 
@@ -23,13 +25,13 @@ def repo() -> AsyncMock:
 
 
 @pytest.fixture()
-def session() -> AsyncMock:
-    return AsyncMock()
+def tool_repo() -> AsyncMock:
+    return AsyncMock(spec=ToolRepository)
 
 
 @pytest.fixture()
-def service(repo: AsyncMock, session: AsyncMock) -> AgentService:
-    return AgentService(repo, session)
+def service(repo: AsyncMock, tool_repo: AsyncMock) -> AgentService:
+    return AgentService(repo, tool_repo)
 
 
 def _make_tool(
@@ -68,13 +70,6 @@ def _make_agent(
     return agent
 
 
-def _mock_session_execute(session: AsyncMock, tools: list[MagicMock]) -> None:
-    """Configure the session mock to return tools from _resolve_tools query."""
-    result = MagicMock()
-    result.scalars.return_value.all.return_value = tools
-    session.execute.return_value = result
-
-
 # ---------------------------------------------------------------------------
 # create_agent
 # ---------------------------------------------------------------------------
@@ -82,7 +77,7 @@ def _mock_session_execute(session: AsyncMock, tools: list[MagicMock]) -> None:
 
 @pytest.mark.asyncio
 async def test_create_agent_no_tools(
-    service: AgentService, repo: AsyncMock, session: AsyncMock
+    service: AgentService, repo: AsyncMock, tool_repo: AsyncMock
 ) -> None:
     repo.create.return_value = _make_agent()
 
@@ -93,15 +88,15 @@ async def test_create_agent_no_tools(
     assert result.role == "assistant"
     assert result.tools == []
     repo.create.assert_awaited_once()
-    session.execute.assert_not_awaited()
+    tool_repo.get_by_ids.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_create_agent_with_tools(
-    service: AgentService, repo: AsyncMock, session: AsyncMock
+    service: AgentService, repo: AsyncMock, tool_repo: AsyncMock
 ) -> None:
     tool = _make_tool()
-    _mock_session_execute(session, [tool])
+    tool_repo.get_by_ids.return_value = [tool]
     repo.create.return_value = _make_agent(tools=[tool])
 
     result = await service.create_agent(
@@ -113,8 +108,8 @@ async def test_create_agent_with_tools(
 
 
 @pytest.mark.asyncio
-async def test_create_agent_invalid_tool_ids(service: AgentService, session: AsyncMock) -> None:
-    _mock_session_execute(session, [])  # no tools found
+async def test_create_agent_invalid_tool_ids(service: AgentService, tool_repo: AsyncMock) -> None:
+    tool_repo.get_by_ids.return_value = []
 
     with pytest.raises(ToolNotFoundError):
         await service.create_agent(
@@ -128,6 +123,24 @@ async def test_create_agent_duplicate(service: AgentService, repo: AsyncMock) ->
 
     with pytest.raises(AgentAlreadyExistsError):
         await service.create_agent("tenant_1", AgentCreate(name="my-agent", role="assistant"))
+
+
+@pytest.mark.asyncio
+async def test_create_agent_logs_info(
+    service: AgentService, repo: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    repo.create.return_value = _make_agent()
+
+    caplog.set_level(logging.INFO)
+
+    await service.create_agent("tenant_1", AgentCreate(name="my-agent", role="assistant"))
+
+    assert any(
+        record.levelno == logging.INFO
+        and record.getMessage()
+        == "Created agent tenant_id=tenant_1 agent_id=a1 name=my-agent tool_count=0"
+        for record in caplog.records
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -256,10 +269,10 @@ async def test_update_agent_clear_description(service: AgentService, repo: Async
 
 @pytest.mark.asyncio
 async def test_update_agent_tools(
-    service: AgentService, repo: AsyncMock, session: AsyncMock
+    service: AgentService, repo: AsyncMock, tool_repo: AsyncMock
 ) -> None:
     tool = _make_tool()
-    _mock_session_execute(session, [tool])
+    tool_repo.get_by_ids.return_value = [tool]
     agent = _make_agent()
     repo.get_by_id.return_value = agent
     repo.update.return_value = agent
@@ -271,7 +284,7 @@ async def test_update_agent_tools(
 
 @pytest.mark.asyncio
 async def test_update_agent_clear_tools(
-    service: AgentService, repo: AsyncMock, session: AsyncMock
+    service: AgentService, repo: AsyncMock, tool_repo: AsyncMock
 ) -> None:
     agent = _make_agent(tools=[_make_tool()])
     repo.get_by_id.return_value = agent
@@ -280,7 +293,7 @@ async def test_update_agent_clear_tools(
     await service.update_agent("tenant_1", "a1", AgentUpdate(tool_ids=[]))
 
     assert agent.tools == []
-    session.execute.assert_not_awaited()
+    tool_repo.get_by_ids.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -325,14 +338,34 @@ async def test_update_agent_duplicate_name(service: AgentService, repo: AsyncMoc
 
 @pytest.mark.asyncio
 async def test_update_agent_invalid_tool_ids(
-    service: AgentService, repo: AsyncMock, session: AsyncMock
+    service: AgentService, repo: AsyncMock, tool_repo: AsyncMock
 ) -> None:
-    _mock_session_execute(session, [])  # no tools found
+    tool_repo.get_by_ids.return_value = []
     agent = _make_agent()
     repo.get_by_id.return_value = agent
 
     with pytest.raises(ToolNotFoundError):
         await service.update_agent("tenant_1", "a1", AgentUpdate(tool_ids=["nonexistent"]))
+
+
+@pytest.mark.asyncio
+async def test_update_agent_logs_info(
+    service: AgentService, repo: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    agent = _make_agent()
+    repo.get_by_id.return_value = agent
+    repo.update.return_value = agent
+
+    caplog.set_level(logging.INFO)
+
+    await service.update_agent("tenant_1", "a1", AgentUpdate(name="renamed"))
+
+    assert any(
+        record.levelno == logging.INFO
+        and record.getMessage()
+        == "Updated agent tenant_id=tenant_1 agent_id=a1 name=renamed tool_count=0"
+        for record in caplog.records
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +381,23 @@ async def test_delete_agent(service: AgentService, repo: AsyncMock) -> None:
     await service.delete_agent("tenant_1", "a1")
 
     repo.delete.assert_awaited_once_with(agent)
+
+
+@pytest.mark.asyncio
+async def test_delete_agent_logs_info(
+    service: AgentService, repo: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    repo.get_by_id.return_value = _make_agent()
+
+    caplog.set_level(logging.INFO)
+
+    await service.delete_agent("tenant_1", "a1")
+
+    assert any(
+        record.levelno == logging.INFO
+        and record.getMessage() == "Deleted agent tenant_id=tenant_1 agent_id=a1"
+        for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio

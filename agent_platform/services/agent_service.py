@@ -1,6 +1,6 @@
-from sqlalchemy import select
+import logging
+
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_platform.data_models.agent import AgentCreate, AgentResponse, AgentUpdate
 from agent_platform.data_models.pagination import (
@@ -18,23 +18,26 @@ from agent_platform.exceptions import (
     ToolNotFoundError,
 )
 from agent_platform.repositories.agent_repository import AgentRepository
+from agent_platform.repositories.tool_repository import ToolRepository
 from agent_platform.settings import get_settings
 
 
 class AgentService:
-    def __init__(self, repository: AgentRepository, session: AsyncSession) -> None:
+    def __init__(self, repository: AgentRepository, tool_repository: ToolRepository) -> None:
+        self._logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self._repository = repository
-        self._session = session
+        self._tool_repository = tool_repository
 
     async def _resolve_tools(self, tenant_id: str, tool_ids: list[str]) -> list[Tool]:
         """Validate tool_ids belong to the tenant and return the Tool objects."""
         if not tool_ids:
             return []
-        result = await self._session.execute(
-            select(Tool).where(Tool.tenant_id == tenant_id, Tool.id.in_(tool_ids))
-        )
-        tools = list(result.scalars().all())
+        tools = await self._tool_repository.get_by_ids(tenant_id, tool_ids)
         if len(tools) != len(tool_ids):
+            self._logger.warning(
+                f"Invalid tool_ids for agent tenant_id={tenant_id} "
+                f"requested={len(tool_ids)} resolved={len(tools)}"
+            )
             raise ToolNotFoundError
         return tools
 
@@ -50,12 +53,19 @@ class AgentService:
         try:
             agent = await self._repository.create(agent)
         except IntegrityError:
+            self._logger.warning(f"Agent already exists tenant_id={tenant_id} name={data.name}")
             raise AgentAlreadyExistsError from None
+        self._logger.info(
+            f"Created agent tenant_id={tenant_id} agent_id={agent.id} "
+            f"name={agent.name} tool_count={len(agent.tools)}"
+        )
         return self._to_response(agent)
 
     async def get_agent(self, tenant_id: str, agent_id: str) -> AgentResponse:
+        self._logger.debug(f"Fetching agent tenant_id={tenant_id} agent_id={agent_id}")
         agent = await self._repository.get_by_id(tenant_id, agent_id)
         if not agent:
+            self._logger.warning(f"Agent not found tenant_id={tenant_id} agent_id={agent_id}")
             raise AgentNotFoundError
         return self._to_response(agent)
 
@@ -66,6 +76,10 @@ class AgentService:
         cursor: str | None = None,
         tool_name: str | None = None,
     ) -> PaginatedResponse[AgentResponse]:
+        self._logger.debug(
+            f"Listing agents tenant_id={tenant_id} limit={limit} "
+            f"cursor={cursor} tool_name={tool_name}"
+        )
         cursor_data: CursorData | None = None
         if cursor:
             cursor_data = decode_cursor(cursor)
@@ -91,6 +105,7 @@ class AgentService:
     async def update_agent(self, tenant_id: str, agent_id: str, data: AgentUpdate) -> AgentResponse:
         agent = await self._repository.get_by_id(tenant_id, agent_id)
         if not agent:
+            self._logger.warning(f"Agent not found tenant_id={tenant_id} agent_id={agent_id}")
             raise AgentNotFoundError
 
         for field in data.model_fields_set - {"tool_ids"}:
@@ -104,14 +119,24 @@ class AgentService:
         try:
             agent = await self._repository.update(agent)
         except IntegrityError:
+            self._logger.warning(
+                f"Agent already exists tenant_id={tenant_id} "
+                f"agent_id={agent_id} name={data.name or agent.name}"
+            )
             raise AgentAlreadyExistsError from None
+        self._logger.info(
+            f"Updated agent tenant_id={tenant_id} agent_id={agent.id} "
+            f"name={agent.name} tool_count={len(agent.tools)}"
+        )
         return self._to_response(agent)
 
     async def delete_agent(self, tenant_id: str, agent_id: str) -> None:
         agent = await self._repository.get_by_id(tenant_id, agent_id)
         if not agent:
+            self._logger.warning(f"Agent not found tenant_id={tenant_id} agent_id={agent_id}")
             raise AgentNotFoundError
         await self._repository.delete(agent)
+        self._logger.info(f"Deleted agent tenant_id={tenant_id} agent_id={agent_id}")
 
     @staticmethod
     def _to_response(agent: Agent) -> AgentResponse:

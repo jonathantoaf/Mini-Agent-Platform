@@ -4,9 +4,10 @@ import json
 import logging
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Security, status
+from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader
 
+from agent_platform.logging_context import set_tenant_id
 from agent_platform.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,8 @@ def _load_api_keys() -> dict[str, str]:
         return {}
 
 
-def get_current_tenant_id(
+async def get_current_tenant_id(
+    request: Request,
     api_key: str | None = Security(api_key_header),
 ) -> str:
     """Extract and validate tenant ID from API key header.
@@ -57,6 +59,8 @@ def get_current_tenant_id(
             detail="Invalid API key.",
         )
 
+    request.state.tenant_id = tenant_id
+    set_tenant_id(tenant_id)
     return tenant_id
 
 

@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
@@ -52,6 +53,23 @@ async def test_create_tool(service: ToolService, repo: AsyncMock) -> None:
     assert isinstance(result, ToolResponse)
     assert result.name == "web-search"
     repo.create.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_tool_logs_info(
+    service: ToolService, repo: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    repo.create.return_value = _make_tool()
+
+    caplog.set_level(logging.INFO)
+
+    await service.create_tool("tenant_1", ToolCreate(name="web-search"))
+
+    assert any(
+        record.levelno == logging.INFO
+        and record.getMessage() == "Created tool tenant_id=tenant_1 tool_id=t1 name=web-search"
+        for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio
@@ -218,6 +236,23 @@ async def test_delete_tool(service: ToolService, repo: AsyncMock) -> None:
     await service.delete_tool("tenant_1", "t1")
 
     repo.delete.assert_awaited_once_with(tool)
+
+
+@pytest.mark.asyncio
+async def test_delete_tool_logs_info(
+    service: ToolService, repo: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    repo.get_by_id.return_value = _make_tool()
+
+    caplog.set_level(logging.INFO)
+
+    await service.delete_tool("tenant_1", "t1")
+
+    assert any(
+        record.levelno == logging.INFO
+        and record.getMessage() == "Deleted tool tenant_id=tenant_1 tool_id=t1"
+        for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio

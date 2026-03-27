@@ -1,39 +1,20 @@
-from collections.abc import AsyncIterator
 from typing import Annotated
 
-from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent_platform.api.dependencies import get_agent_service
 from agent_platform.auth.api_key import TenantId
-from agent_platform.containers import Container
 from agent_platform.data_models.agent import AgentCreate, AgentResponse, AgentUpdate
 from agent_platform.data_models.pagination import PaginatedResponse
-from agent_platform.db.session import Database
 from agent_platform.exceptions import (
     AgentAlreadyExistsError,
     AgentNotFoundError,
     ToolNotFoundError,
 )
-from agent_platform.repositories.agent_repository import AgentRepository
 from agent_platform.services.agent_service import AgentService
 from agent_platform.settings import get_settings
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
-
-
-@inject
-async def get_session(
-    db: Database = Depends(Provide[Container.db]),
-) -> AsyncIterator[AsyncSession]:
-    async for session in db.session():
-        yield session
-
-
-def get_agent_service(
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> AgentService:
-    return AgentService(AgentRepository(session), session)
 
 
 @router.post("", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)

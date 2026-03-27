@@ -26,6 +26,15 @@ class ToolRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_ids(self, tenant_id: str, tool_ids: list[str]) -> list[Tool]:
+        result = await self._session.execute(
+            select(Tool).where(
+                Tool.tenant_id == tenant_id,
+                Tool.id.in_(tool_ids),
+            )
+        )
+        return list(result.scalars().all())
+
     async def list_paginated(
         self,
         tenant_id: str,

@@ -1,35 +1,16 @@
-from collections.abc import AsyncIterator
 from typing import Annotated
 
-from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent_platform.api.dependencies import get_tool_service
 from agent_platform.auth.api_key import TenantId
-from agent_platform.containers import Container
 from agent_platform.data_models.pagination import PaginatedResponse
 from agent_platform.data_models.tool import ToolCreate, ToolResponse, ToolUpdate
-from agent_platform.db.session import Database
 from agent_platform.exceptions import ToolAlreadyExistsError, ToolNotFoundError
-from agent_platform.repositories.tool_repository import ToolRepository
 from agent_platform.services.tool_service import ToolService
 from agent_platform.settings import get_settings
 
 router = APIRouter(prefix="/tools", tags=["Tools"])
-
-
-@inject
-async def get_session(
-    db: Database = Depends(Provide[Container.db]),
-) -> AsyncIterator[AsyncSession]:
-    async for session in db.session():
-        yield session
-
-
-def get_tool_service(
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> ToolService:
-    return ToolService(ToolRepository(session))
 
 
 @router.post("", response_model=ToolResponse, status_code=status.HTTP_201_CREATED)
