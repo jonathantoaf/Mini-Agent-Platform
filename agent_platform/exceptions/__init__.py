@@ -31,3 +31,7 @@ class ToolNotAssignedError(Exception):
 
 class InvalidModelError(Exception):
     pass
+
+
+class ExecutionNotFoundError(Exception):
+    pass

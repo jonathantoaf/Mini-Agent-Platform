@@ -12,6 +12,7 @@ from agent_platform.repositories.agent_repository import AgentRepository
 from agent_platform.repositories.execution_repository import ExecutionRepository
 from agent_platform.repositories.tool_repository import ToolRepository
 from agent_platform.services.agent_service import AgentService
+from agent_platform.services.execution_service import ExecutionService
 from agent_platform.services.run.guardrail import PromptInjectionGuardrail
 from agent_platform.services.run.mock_llm import MockLlmAdapter
 from agent_platform.services.run.mock_tool_executor import MockToolExecutor
@@ -41,6 +42,15 @@ def get_agent_service(
     return AgentService(
         AgentRepository(session),
         ToolRepository(session),
+    )
+
+
+def get_execution_service(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ExecutionService:
+    return ExecutionService(
+        execution_repo=ExecutionRepository(session),
+        agent_repo=AgentRepository(session),
     )
 
 
