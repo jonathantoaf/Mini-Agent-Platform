@@ -26,7 +26,10 @@ jobs:
           --health-retries 5
 
     env:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/agent_platform
+      # App connects as app_user (non-superuser) so RLS policies are enforced
+      DATABASE_URL: postgresql+asyncpg://app_user:app_user@localhost:5432/agent_platform
+      # Migrations connect as postgres (superuser) for DDL and role creation
+      DATABASE_MIGRATION_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/agent_platform
       API_KEYS: '{"sk-tenant1-secret": "tenant_1", "sk-tenant2-secret": "tenant_2"}'
 
     steps:
@@ -38,10 +41,10 @@ jobs:
 
       - run: uv sync --frozen
 
-      - name: Run migrations
+      - name: Run migrations (as postgres superuser, creates app_user role + RLS)
         run: uv run alembic upgrade head
 
-      - name: Run all checks
+      - name: Run all checks (app connects as app_user, RLS enforced)
         run: uv run poe check
 
   build:
