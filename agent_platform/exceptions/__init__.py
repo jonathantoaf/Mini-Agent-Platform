@@ -15,3 +15,19 @@ class AgentNotFoundError(Exception):
 
 class AgentAlreadyExistsError(Exception):
     pass
+
+
+class PromptInjectionError(Exception):
+    pass
+
+
+class MaxIterationsError(Exception):
+    pass
+
+
+class ToolNotAssignedError(Exception):
+    pass
+
+
+class InvalidModelError(Exception):
+    pass

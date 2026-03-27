@@ -16,6 +16,7 @@ from agent_platform.api.routers import (
     agent_router,
     health_router,
     index_router,
+    run_router,
     tool_router,
 )
 from agent_platform.containers import Container
@@ -44,7 +45,9 @@ def create_container() -> Container:
     container.config.database_pool_size.from_value(settings.database_pool_size)
     container.config.database_max_overflow.from_value(settings.database_max_overflow)
     container.config.debug.from_value(settings.debug)
-    container.wire(modules=[dependencies, index_router, health_router, tool_router, agent_router])
+    container.wire(
+        modules=[dependencies, index_router, health_router, tool_router, agent_router, run_router]
+    )
     return container
 
 
@@ -82,6 +85,7 @@ def create_app() -> FastAPI:
     _app.include_router(health_router.router)
     _app.include_router(tool_router.router, prefix="/api/v1")
     _app.include_router(agent_router.router, prefix="/api/v1")
+    _app.include_router(run_router.router, prefix="/api/v1")
 
     async def exception_handler(request: Request, _error: Exception) -> JSONResponse:
         logger.exception(
