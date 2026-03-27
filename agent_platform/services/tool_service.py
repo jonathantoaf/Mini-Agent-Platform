@@ -1,3 +1,5 @@
+import logging
+
 from sqlalchemy.exc import IntegrityError
 
 from agent_platform.data_models.pagination import (
@@ -15,6 +17,7 @@ from agent_platform.settings import get_settings
 
 class ToolService:
     def __init__(self, repository: ToolRepository) -> None:
+        self._logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self._repository = repository
 
     async def create_tool(self, tenant_id: str, data: ToolCreate) -> ToolResponse:
@@ -26,12 +29,16 @@ class ToolService:
         try:
             tool = await self._repository.create(tool)
         except IntegrityError:
+            self._logger.warning(f"Tool already exists tenant_id={tenant_id} name={data.name}")
             raise ToolAlreadyExistsError from None
+        self._logger.info(f"Created tool tenant_id={tenant_id} tool_id={tool.id} name={tool.name}")
         return self._to_response(tool)
 
     async def get_tool(self, tenant_id: str, tool_id: str) -> ToolResponse:
+        self._logger.debug(f"Fetching tool tenant_id={tenant_id} tool_id={tool_id}")
         tool = await self._repository.get_by_id(tenant_id, tool_id)
         if not tool:
+            self._logger.warning(f"Tool not found tenant_id={tenant_id} tool_id={tool_id}")
             raise ToolNotFoundError
         return self._to_response(tool)
 
@@ -42,6 +49,10 @@ class ToolService:
         cursor: str | None = None,
         agent_name: str | None = None,
     ) -> PaginatedResponse[ToolResponse]:
+        self._logger.debug(
+            f"Listing tools tenant_id={tenant_id} limit={limit} "
+            f"cursor={cursor} agent_name={agent_name}"
+        )
         cursor_data: CursorData | None = None
         if cursor:
             cursor_data = decode_cursor(cursor)
@@ -67,6 +78,7 @@ class ToolService:
     async def update_tool(self, tenant_id: str, tool_id: str, data: ToolUpdate) -> ToolResponse:
         tool = await self._repository.get_by_id(tenant_id, tool_id)
         if not tool:
+            self._logger.warning(f"Tool not found tenant_id={tenant_id} tool_id={tool_id}")
             raise ToolNotFoundError
 
         for field in data.model_fields_set:
@@ -77,14 +89,21 @@ class ToolService:
         try:
             tool = await self._repository.update(tool)
         except IntegrityError:
+            self._logger.warning(
+                f"Tool already exists tenant_id={tenant_id} "
+                f"tool_id={tool_id} name={data.name or tool.name}"
+            )
             raise ToolAlreadyExistsError from None
+        self._logger.info(f"Updated tool tenant_id={tenant_id} tool_id={tool.id} name={tool.name}")
         return self._to_response(tool)
 
     async def delete_tool(self, tenant_id: str, tool_id: str) -> None:
         tool = await self._repository.get_by_id(tenant_id, tool_id)
         if not tool:
+            self._logger.warning(f"Tool not found tenant_id={tenant_id} tool_id={tool_id}")
             raise ToolNotFoundError
         await self._repository.delete(tool)
+        self._logger.info(f"Deleted tool tenant_id={tenant_id} tool_id={tool_id}")
 
     @staticmethod
     def _to_response(tool: Tool) -> ToolResponse:
