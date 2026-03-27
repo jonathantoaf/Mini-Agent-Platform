@@ -32,3 +32,6 @@ class Database:
             raise
         finally:
             await session.close()
+
+    async def dispose(self) -> None:
+        await self._engine.dispose()
