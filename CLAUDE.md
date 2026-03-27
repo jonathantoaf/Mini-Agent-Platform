@@ -43,14 +43,16 @@ def get_tool_service(
 def get_agent_service(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> AgentService:
-    return AgentService(AgentRepository(session), session)
+    return AgentService(AgentRepository(session), ToolRepository(session))
 ```
+
+**DI factory functions** live in `api/dependencies.py` — each creates a service with the required repositories from a shared session.
 
 **Wiring**: All modules using `@inject` must be listed in `container.wire()` in `server.py`.
 
 ### Multi-Tenancy
 
-- Auth via `X-API-Key` header → tenant_id lookup (`auth/api_key.py`)
+- Auth via `X-API-Key` header → tenant_id lookup (`auth/api_key.py`), API keys parsed once at startup and cached
 - `TenantId` type alias for route dependencies
 - All DB queries filtered by `tenant_id` at repository layer
 - PostgreSQL RLS as a database-level safety net
@@ -58,12 +60,12 @@ def get_agent_service(
 ### Key Patterns
 
 - **Pydantic models** extend `SharedBaseModel` from `data_models/base.py` (auto camelCase serialization)
-- **Cursor-based pagination** via `data_models/pagination.py` (encode_cursor/decode_cursor + PaginatedResponse[T]); defaults configured in settings
+- **Cursor-based pagination** via `data_models/pagination.py` (encode_cursor/decode_cursor + PaginatedResponse[T]); defaults configured in settings. Invalid cursors raise `InvalidCursorError` → 400 Bad Request
 - **Configurable defaults** — all runtime defaults (pagination limits, etc.) come from `settings.py` via `get_settings()`, never hardcoded
 - **Settings** via `get_settings()` cached singleton (pydantic-settings with .env)
 - **Async DB sessions** via `db/session.py` (get_async_session dependency)
-- **Domain exceptions** in `exceptions/` package — naming convention: `<Entity>NotFoundError`, `<Entity>AlreadyExistsError`. Caught by routers and converted to HTTP errors. Can be split into per-domain modules as complexity grows.
-- **Error handling** — routers catch domain exceptions and map to HTTP codes (404, 409). Unhandled exceptions are caught by the global `exception_handler` in `server.py`, which logs the error and returns `{"detail": "Internal server error."}` with 500 status. All error responses use consistent JSON format `{"detail": "..."}`.
+- **Domain exceptions** in `exceptions/` package — naming convention: `<Entity>NotFoundError`, `<Entity>AlreadyExistsError`, plus `InvalidCursorError`, `PromptInjectionError`, `MaxIterationsError`, `InvalidModelError`, `ToolNotAssignedError`. Caught by routers and converted to HTTP errors.
+- **Error handling** — routers catch domain exceptions and map to HTTP codes (400, 404, 409). Unhandled exceptions are caught by the global `exception_handler` in `server.py`, which logs the error and returns `{"detail": "Internal server error."}` with 500 status. All error responses use consistent JSON format `{"detail": "..."}`.
 - **Uniqueness enforcement** via DB constraints + `IntegrityError` catch in services (no app-level check-then-act — avoids TOCTOU races)
 - **Many-to-many relationships** — Agents ↔ Tools via `agent_tools` join table with CASCADE deletes. Agent model uses `lazy="selectin"` for eager loading. List queries use `result.unique().scalars()` to deduplicate rows from joins.
 
@@ -172,23 +174,33 @@ Mini-Agent-Platform/
 ├── agent_platform/
 │   ├── api/
 │   │   ├── routers/              # FastAPI route handlers
+│   │   ├── dependencies.py       # DI factory functions for services
 │   │   ├── server.py             # App factory, middleware
 │   │   └── static/               # Swagger/ReDoc assets
 │   ├── auth/
-│   │   └── api_key.py            # API key → tenant_id auth
+│   │   └── api_key.py            # API key → tenant_id auth (cached at startup)
 │   ├── data_models/
 │   │   ├── agent.py              # Agent Create/Update/Response schemas
 │   │   ├── base.py               # SharedBaseModel (camelCase)
+│   │   ├── execution.py          # ExecutionResponse schema
 │   │   ├── pagination.py         # Cursor-based pagination
+│   │   ├── run.py                # RunRequest/Response, ChatMessage, ToolCallRecord
 │   │   └── tool.py               # Tool Create/Update/Response schemas
 │   ├── db/
 │   │   ├── base.py               # SQLAlchemy Base
-│   │   ├── models/               # ORM models
+│   │   ├── models/               # ORM models (Agent, Tool, Execution)
 │   │   └── session.py            # Async session factory
 │   ├── repositories/             # Data access layer
-│   ├── exceptions/               # Domain exceptions (<Entity>NotFoundError, etc.)
+│   ├── exceptions/               # Domain exceptions
 │   ├── services/
+│   │   ├── run/                  # Agent execution pipeline
+│   │   │   ├── guardrail.py      # Prompt injection detection
+│   │   │   ├── mock_llm.py       # Mock LLM adapter
+│   │   │   ├── mock_tool_executor.py
+│   │   │   ├── prompt_builder.py # Structured prompt construction
+│   │   │   └── run_service.py    # Agentic loop orchestrator
 │   │   ├── agent_service.py      # Agent CRUD + tool assignment
+│   │   ├── execution_service.py  # Execution history retrieval
 │   │   └── tool_service.py       # Tool CRUD
 │   ├── containers.py             # DI container (DB engine, session factory)
 │   └── settings.py               # Pydantic BaseSettings
@@ -209,4 +221,6 @@ DEBUG=false
 LOG_LEVEL=INFO
 PAGINATION_DEFAULT_LIMIT=20
 PAGINATION_MAX_LIMIT=100
+RUN_MAX_ITERATIONS=10
+ALLOWED_MODELS=["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "claude-sonnet-4-5-20250514", "claude-haiku-4-5-20251001", "gemini-2.5-flash", "gemini-2.5-pro"]
 ```
