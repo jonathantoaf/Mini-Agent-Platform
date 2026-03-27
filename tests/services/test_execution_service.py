@@ -33,7 +33,9 @@ def _make_execution(
     execution.model = model
     execution.final_response = final_response
     execution.tool_calls = tool_calls or []
-    execution.messages = messages or [{"role": "user", "content": "Say hello"}]
+    execution.messages = (
+        [{"role": "user", "content": "Say hello"}] if messages is None else messages
+    )
     execution.created_at = _CREATED_AT
     return execution
 
@@ -193,3 +195,65 @@ async def test_list_executions_passes_agent_id_to_repo(
     call_kwargs = execution_repo.list_paginated.call_args.kwargs
     assert call_kwargs["agent_id"] == "agent-1"
     assert call_kwargs["tenant_id"] == "tenant_1"
+
+
+@pytest.mark.asyncio
+async def test_list_executions_with_invalid_cursor(
+    service: ExecutionService, execution_repo: AsyncMock, agent_repo: AsyncMock
+) -> None:
+    """Invalid cursor string should be treated as None (start from beginning)."""
+    agent_repo.get_by_id.return_value = MagicMock(spec=Agent)
+    execution_repo.list_paginated.return_value = ([], False)
+
+    await service.list_executions("tenant_1", "agent-1", cursor="not-valid-base64!!")
+
+    call_kwargs = execution_repo.list_paginated.call_args.kwargs
+    assert call_kwargs["cursor"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_execution_multiple_tool_calls(
+    service: ExecutionService, execution_repo: AsyncMock
+) -> None:
+    """Verify correct conversion when execution has multiple tool calls."""
+    execution_repo.get_by_id.return_value = _make_execution(
+        tool_calls=[
+            {
+                "tool_call_id": "call_1",
+                "tool_name": "web-search",
+                "arguments": '{"q": "test"}',
+                "result": "found it",
+            },
+            {
+                "tool_call_id": "call_2",
+                "tool_name": "calculator",
+                "arguments": '{"expr": "2+2"}',
+                "result": "4",
+            },
+            {
+                "tool_call_id": "call_3",
+                "tool_name": "file-reader",
+                "arguments": '{"path": "/tmp/x"}',
+                "result": "contents",
+            },
+        ],
+    )
+
+    result = await service.get_execution("tenant_1", "exec-1")
+
+    assert len(result.tool_calls) == 3
+    assert result.tool_calls[0].tool_name == "web-search"
+    assert result.tool_calls[1].tool_name == "calculator"
+    assert result.tool_calls[2].tool_name == "file-reader"
+
+
+@pytest.mark.asyncio
+async def test_get_execution_empty_messages(
+    service: ExecutionService, execution_repo: AsyncMock
+) -> None:
+    """Edge case: execution with empty messages array."""
+    execution_repo.get_by_id.return_value = _make_execution(messages=[])
+
+    result = await service.get_execution("tenant_1", "exec-1")
+
+    assert result.messages == []

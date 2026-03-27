@@ -83,6 +83,16 @@ class TestGetExecution:
 
         mock_service.get_execution.assert_awaited_once_with("tenant_1", "exec-1")
 
+    def test_tenant_isolation(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.get_execution.side_effect = ExecutionNotFoundError
+
+        resp = client.get("/api/v1/executions/exec-owned-by-other-tenant")
+
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+        mock_service.get_execution.assert_awaited_once_with(
+            "tenant_1", "exec-owned-by-other-tenant"
+        )
+
     def test_includes_tool_calls(self, client: TestClient, mock_service: AsyncMock) -> None:
         mock_service.get_execution.return_value = _make_response(
             tool_calls=[
@@ -173,6 +183,30 @@ class TestListExecutions:
         call_kwargs = mock_service.list_executions.call_args.kwargs
         assert call_kwargs["tenant_id"] == "tenant_1"
         assert call_kwargs["agent_id"] == "my-agent"
+
+    def test_default_limit(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.list_executions.return_value = PaginatedResponse[ExecutionResponse](
+            items=[],
+            has_more=False,
+            next_cursor=None,
+        )
+
+        client.get("/api/v1/agents/agent-1/executions")
+
+        call_kwargs = mock_service.list_executions.call_args.kwargs
+        assert call_kwargs["limit"] == 20
+
+    def test_invalid_limit_zero(self, client: TestClient, mock_service: AsyncMock) -> None:
+        resp = client.get("/api/v1/agents/agent-1/executions?limit=0")
+
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        mock_service.list_executions.assert_not_awaited()
+
+    def test_invalid_limit_exceeds_max(self, client: TestClient, mock_service: AsyncMock) -> None:
+        resp = client.get("/api/v1/agents/agent-1/executions?limit=999")
+
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        mock_service.list_executions.assert_not_awaited()
 
     def test_has_more_with_cursor(self, client: TestClient, mock_service: AsyncMock) -> None:
         mock_service.list_executions.return_value = PaginatedResponse[ExecutionResponse](
