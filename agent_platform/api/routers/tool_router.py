@@ -6,7 +6,7 @@ from agent_platform.api.dependencies import get_tool_service
 from agent_platform.auth.api_key import TenantId
 from agent_platform.data_models.pagination import PaginatedResponse
 from agent_platform.data_models.tool import ToolCreate, ToolResponse, ToolUpdate
-from agent_platform.exceptions import ToolAlreadyExistsError, ToolNotFoundError
+from agent_platform.exceptions import InvalidCursorError, ToolAlreadyExistsError, ToolNotFoundError
 from agent_platform.services.tool_service import ToolService
 from agent_platform.settings import get_settings
 
@@ -41,12 +41,18 @@ async def list_tools(
     ),
     agent_name: str | None = Query(None, description="Filter by agent name"),
 ) -> PaginatedResponse[ToolResponse]:
-    return await service.list_tools(
-        tenant_id=tenant_id,
-        limit=limit,
-        cursor=cursor,
-        agent_name=agent_name,
-    )
+    try:
+        return await service.list_tools(
+            tenant_id=tenant_id,
+            limit=limit,
+            cursor=cursor,
+            agent_name=agent_name,
+        )
+    except InvalidCursorError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid pagination cursor.",
+        ) from None
 
 
 @router.get("/{tool_id}", response_model=ToolResponse)

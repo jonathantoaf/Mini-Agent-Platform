@@ -3,7 +3,6 @@ import logging
 from sqlalchemy.exc import IntegrityError
 
 from agent_platform.data_models.pagination import (
-    CursorData,
     PaginatedResponse,
     decode_cursor,
     encode_cursor,
@@ -53,9 +52,7 @@ class ToolService:
             f"Listing tools tenant_id={tenant_id} limit={limit} "
             f"cursor={cursor} agent_name={agent_name}"
         )
-        cursor_data: CursorData | None = None
-        if cursor:
-            cursor_data = decode_cursor(cursor)
+        cursor_data = decode_cursor(cursor) if cursor else None
 
         tools, has_more = await self._repository.list_paginated(
             tenant_id=tenant_id,

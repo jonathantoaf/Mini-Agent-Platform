@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from agent_platform.api import dependencies
 from agent_platform.api.routers import (
     agent_router,
+    execution_router,
     health_router,
     index_router,
     run_router,
@@ -46,9 +47,27 @@ def create_container() -> Container:
     container.config.database_max_overflow.from_value(settings.database_max_overflow)
     container.config.debug.from_value(settings.debug)
     container.wire(
-        modules=[dependencies, index_router, health_router, tool_router, agent_router, run_router]
+        modules=[
+            dependencies,
+            index_router,
+            health_router,
+            tool_router,
+            agent_router,
+            run_router,
+            execution_router,
+        ]
     )
     return container
+
+
+def _register_routers(_app: FastAPI) -> None:
+    _app.include_router(index_router.router)
+    _app.include_router(health_router.router)
+    _app.include_router(tool_router.router, prefix="/api/v1")
+    _app.include_router(agent_router.router, prefix="/api/v1")
+    _app.include_router(run_router.router, prefix="/api/v1")
+    _app.include_router(execution_router.agent_executions_router, prefix="/api/v1")
+    _app.include_router(execution_router.executions_router, prefix="/api/v1")
 
 
 def create_app() -> FastAPI:
@@ -81,11 +100,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     _app.extra = {"container": container}
-    _app.include_router(index_router.router)
-    _app.include_router(health_router.router)
-    _app.include_router(tool_router.router, prefix="/api/v1")
-    _app.include_router(agent_router.router, prefix="/api/v1")
-    _app.include_router(run_router.router, prefix="/api/v1")
+    _register_routers(_app)
 
     async def exception_handler(request: Request, _error: Exception) -> JSONResponse:
         logger.exception(

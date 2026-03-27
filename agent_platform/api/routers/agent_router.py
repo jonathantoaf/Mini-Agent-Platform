@@ -9,6 +9,7 @@ from agent_platform.data_models.pagination import PaginatedResponse
 from agent_platform.exceptions import (
     AgentAlreadyExistsError,
     AgentNotFoundError,
+    InvalidCursorError,
     ToolNotFoundError,
 )
 from agent_platform.services.agent_service import AgentService
@@ -50,12 +51,18 @@ async def list_agents(
     ),
     tool_name: str | None = Query(None, description="Filter by tool name"),
 ) -> PaginatedResponse[AgentResponse]:
-    return await service.list_agents(
-        tenant_id=tenant_id,
-        limit=limit,
-        cursor=cursor,
-        tool_name=tool_name,
-    )
+    try:
+        return await service.list_agents(
+            tenant_id=tenant_id,
+            limit=limit,
+            cursor=cursor,
+            tool_name=tool_name,
+        )
+    except InvalidCursorError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid pagination cursor.",
+        ) from None
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)

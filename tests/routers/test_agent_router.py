@@ -232,6 +232,13 @@ def test_list_agents_empty(api_client: TestClient) -> None:
     assert body["nextCursor"] is None
 
 
+def test_list_agents_invalid_cursor(api_client: TestClient) -> None:
+    resp = api_client.get(AGENTS_URL, params={"cursor": "bad-cursor"}, headers=TENANT_1_HEADERS)
+
+    assert resp.status_code == status.HTTP_400_BAD_REQUEST
+    assert resp.json()["detail"] == "Invalid pagination cursor."
+
+
 def test_list_agents_pagination(api_client: TestClient) -> None:
     page_size = 2
     for i in range(3):
