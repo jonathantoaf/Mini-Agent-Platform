@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import Field
 
 from agent_platform.data_models.base import SharedBaseModel
+from agent_platform.exceptions import InvalidCursorError
 from agent_platform.settings import get_settings
 
 
@@ -32,14 +33,17 @@ def encode_cursor(created_at: datetime, item_id: str) -> str:
     return base64.urlsafe_b64encode(json_bytes).decode("utf-8")
 
 
-def decode_cursor(cursor: str) -> CursorData | None:
+def decode_cursor(cursor: str) -> CursorData:
     """Decode pagination cursor to created_at and id.
 
     Args:
         cursor: Base64 encoded cursor string.
 
     Returns:
-        CursorData if valid, None otherwise.
+        CursorData if valid.
+
+    Raises:
+        InvalidCursorError: If the cursor string is malformed or cannot be decoded.
     """
     try:
         json_bytes = base64.urlsafe_b64decode(cursor.encode("utf-8"))
@@ -49,7 +53,7 @@ def decode_cursor(cursor: str) -> CursorData | None:
             id=data["id"],
         )
     except (ValueError, KeyError, json.JSONDecodeError):
-        return None
+        raise InvalidCursorError from None
 
 
 class PaginatedResponse[T](SharedBaseModel):

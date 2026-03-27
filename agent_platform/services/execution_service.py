@@ -2,7 +2,6 @@ import logging
 
 from agent_platform.data_models.execution import ExecutionResponse
 from agent_platform.data_models.pagination import (
-    CursorData,
     PaginatedResponse,
     decode_cursor,
     encode_cursor,
@@ -48,9 +47,7 @@ class ExecutionService:
             self._logger.warning(f"Agent not found tenant_id={tenant_id} agent_id={agent_id}")
             raise AgentNotFoundError
 
-        cursor_data: CursorData | None = None
-        if cursor:
-            cursor_data = decode_cursor(cursor)
+        cursor_data = decode_cursor(cursor) if cursor else None
 
         executions, has_more = await self._execution_repo.list_paginated(
             tenant_id=tenant_id,

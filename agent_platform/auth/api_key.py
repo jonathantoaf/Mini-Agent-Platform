@@ -16,7 +16,9 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 def _load_api_keys() -> dict[str, str]:
-    """Load API key → tenant_id mapping from settings.
+    """Load and cache API key → tenant_id mapping from settings.
+
+    Parsed once at startup. The result is stored in _API_KEYS_CACHE.
 
     Returns:
         Dict mapping API keys to tenant IDs.
@@ -27,6 +29,9 @@ def _load_api_keys() -> dict[str, str]:
     except (json.JSONDecodeError, TypeError):
         logger.warning("Failed to parse API_KEYS setting. No API keys configured.")
         return {}
+
+
+_API_KEYS_CACHE: dict[str, str] = _load_api_keys()
 
 
 async def get_current_tenant_id(
@@ -50,8 +55,7 @@ async def get_current_tenant_id(
             detail="Missing API key. Provide X-API-Key header.",
         )
 
-    api_keys = _load_api_keys()
-    tenant_id = api_keys.get(api_key)
+    tenant_id = _API_KEYS_CACHE.get(api_key)
 
     if not tenant_id:
         raise HTTPException(

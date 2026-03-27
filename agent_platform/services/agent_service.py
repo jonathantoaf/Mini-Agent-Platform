@@ -4,7 +4,6 @@ from sqlalchemy.exc import IntegrityError
 
 from agent_platform.data_models.agent import AgentCreate, AgentResponse, AgentUpdate
 from agent_platform.data_models.pagination import (
-    CursorData,
     PaginatedResponse,
     decode_cursor,
     encode_cursor,
@@ -80,9 +79,7 @@ class AgentService:
             f"Listing agents tenant_id={tenant_id} limit={limit} "
             f"cursor={cursor} tool_name={tool_name}"
         )
-        cursor_data: CursorData | None = None
-        if cursor:
-            cursor_data = decode_cursor(cursor)
+        cursor_data = decode_cursor(cursor) if cursor else None
 
         agents, has_more = await self._repository.list_paginated(
             tenant_id=tenant_id,

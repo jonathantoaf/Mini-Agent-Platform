@@ -6,7 +6,7 @@ from agent_platform.api.dependencies import get_execution_service
 from agent_platform.auth.api_key import TenantId
 from agent_platform.data_models.execution import ExecutionResponse
 from agent_platform.data_models.pagination import PaginatedResponse
-from agent_platform.exceptions import AgentNotFoundError, ExecutionNotFoundError
+from agent_platform.exceptions import AgentNotFoundError, ExecutionNotFoundError, InvalidCursorError
 from agent_platform.services.execution_service import ExecutionService
 from agent_platform.settings import get_settings
 
@@ -41,6 +41,11 @@ async def list_executions(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Agent not found.",
+        ) from None
+    except InvalidCursorError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid pagination cursor.",
         ) from None
 
 

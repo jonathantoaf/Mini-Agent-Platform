@@ -35,3 +35,7 @@ class InvalidModelError(Exception):
 
 class ExecutionNotFoundError(Exception):
     pass
+
+
+class InvalidCursorError(Exception):
+    pass

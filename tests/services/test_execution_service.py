@@ -7,7 +7,7 @@ from agent_platform.data_models.execution import ExecutionResponse
 from agent_platform.data_models.pagination import PaginatedResponse, encode_cursor
 from agent_platform.db.models.agent import Agent
 from agent_platform.db.models.execution import Execution
-from agent_platform.exceptions import AgentNotFoundError, ExecutionNotFoundError
+from agent_platform.exceptions import AgentNotFoundError, ExecutionNotFoundError, InvalidCursorError
 from agent_platform.repositories.agent_repository import AgentRepository
 from agent_platform.repositories.execution_repository import ExecutionRepository
 from agent_platform.services.execution_service import ExecutionService
@@ -199,16 +199,13 @@ async def test_list_executions_passes_agent_id_to_repo(
 
 @pytest.mark.asyncio
 async def test_list_executions_with_invalid_cursor(
-    service: ExecutionService, execution_repo: AsyncMock, agent_repo: AsyncMock
+    service: ExecutionService, agent_repo: AsyncMock
 ) -> None:
-    """Invalid cursor string should be treated as None (start from beginning)."""
+    """Invalid cursor string should raise InvalidCursorError."""
     agent_repo.get_by_id.return_value = MagicMock(spec=Agent)
-    execution_repo.list_paginated.return_value = ([], False)
 
-    await service.list_executions("tenant_1", "agent-1", cursor="not-valid-base64!!")
-
-    call_kwargs = execution_repo.list_paginated.call_args.kwargs
-    assert call_kwargs["cursor"] is None
+    with pytest.raises(InvalidCursorError):
+        await service.list_executions("tenant_1", "agent-1", cursor="not-valid-base64!!")
 
 
 @pytest.mark.asyncio

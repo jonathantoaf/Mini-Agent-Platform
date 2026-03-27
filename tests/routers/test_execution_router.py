@@ -13,7 +13,7 @@ from agent_platform.auth.api_key import get_current_tenant_id
 from agent_platform.data_models.execution import ExecutionResponse
 from agent_platform.data_models.pagination import PaginatedResponse
 from agent_platform.data_models.run import ChatMessage, ToolCallRecord
-from agent_platform.exceptions import AgentNotFoundError, ExecutionNotFoundError
+from agent_platform.exceptions import AgentNotFoundError, ExecutionNotFoundError, InvalidCursorError
 
 _CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -207,6 +207,14 @@ class TestListExecutions:
 
         assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         mock_service.list_executions.assert_not_awaited()
+
+    def test_invalid_cursor(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.list_executions.side_effect = InvalidCursorError
+
+        resp = client.get("/api/v1/agents/agent-1/executions?cursor=bad-cursor")
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.json()["detail"] == "Invalid pagination cursor."
 
     def test_has_more_with_cursor(self, client: TestClient, mock_service: AsyncMock) -> None:
         mock_service.list_executions.return_value = PaginatedResponse[ExecutionResponse](
