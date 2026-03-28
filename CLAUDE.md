@@ -55,7 +55,24 @@ def get_agent_service(
 - Auth via `X-API-Key` header → tenant_id lookup (`auth/api_key.py`), API keys parsed once at startup and cached
 - `TenantId` type alias for route dependencies
 - All DB queries filtered by `tenant_id` at repository layer
-- PostgreSQL RLS as a database-level safety net
+- **PostgreSQL RLS** as a database-level safety net (agents, tools, executions tables)
+
+### Row-Level Security (RLS)
+
+Two-layer tenant isolation:
+1. **Application layer**: Repository queries filter by `tenant_id`
+2. **Database layer**: RLS policies on `agents`, `tools`, `executions` tables
+
+**How it works:**
+- `get_session()` in `dependencies.py` calls `set_config('app.current_tenant_id', tenant_id, true)` per request
+- RLS policies compare `tenant_id` column against `current_setting('app.current_tenant_id')`
+- `agent_tools` junction table: no RLS — FK integrity to RLS-protected parents provides equivalent protection
+
+**Two DB roles:**
+- `postgres` (superuser): Used by Alembic for DDL migrations only (`DATABASE_MIGRATION_URL`)
+- `app_user` (non-superuser): Used by the app at runtime (`DATABASE_URL`). RLS policies apply to this role. Superusers always bypass RLS, so the app must connect as a regular user.
+
+**Alembic caveat:** Future DML migrations must either `SET LOCAL app.current_tenant_id` or temporarily disable RLS, since `app_user` is subject to RLS and `postgres` (used by Alembic) bypasses it.
 
 ### Key Patterns
 
@@ -214,7 +231,8 @@ Mini-Agent-Platform/
 ## Environment Variables
 
 ```
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/agent_platform
+DATABASE_URL=postgresql+asyncpg://app_user:app_user@localhost:5432/agent_platform
+DATABASE_MIGRATION_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/agent_platform
 API_KEYS={"sk-tenant1-secret": "tenant_1", "sk-tenant2-secret": "tenant_2"}
 APP_NAME=agent-platform
 DEBUG=false

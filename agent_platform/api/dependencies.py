@@ -4,8 +4,10 @@ from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
 from fastapi import Depends
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent_platform.auth.api_key import TenantId
 from agent_platform.containers import Container
 from agent_platform.db.session import Database
 from agent_platform.repositories.agent_repository import AgentRepository
@@ -24,9 +26,14 @@ from agent_platform.settings import get_settings
 
 @inject
 async def get_session(
+    tenant_id: TenantId,
     db: Database = Depends(Provide[Container.db]),
 ) -> AsyncIterator[AsyncSession]:
     async for session in db.session():
+        await session.execute(
+            text("SELECT set_config('app.current_tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_id},
+        )
         yield session
 
 

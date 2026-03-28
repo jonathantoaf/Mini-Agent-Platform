@@ -25,8 +25,12 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    """Get database URL from settings, converting async to sync driver."""
-    url = get_settings().database_url
+    """Get database URL from settings, converting async to sync driver.
+
+    Uses the migration URL (superuser) since Alembic needs DDL privileges.
+    The app runtime uses a non-superuser role for RLS enforcement.
+    """
+    url = get_settings().database_migration_url
     # Convert async driver to sync for alembic
     return url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
 

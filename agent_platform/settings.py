@@ -28,7 +28,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Database
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/agent_platform"
+    database_url: str = "postgresql+asyncpg://app_user:app_user@localhost:5432/agent_platform"
+    database_migration_url: str = (
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/agent_platform"
+    )
     database_pool_size: int = 5
     database_max_overflow: int = 10
 
