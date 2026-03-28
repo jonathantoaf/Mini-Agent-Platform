@@ -370,7 +370,15 @@ curl -s -X POST http://localhost:5000/api/v1/agents \
 
 **Step 3: Run the agent**
 
-The task mentions "search" -- the mock LLM matches this keyword against the `web-search` tool name and triggers a tool call before producing a final response.
+The mock LLM is fully deterministic -- no randomness, no external calls. It splits each tool name on `-` and `_` to extract keywords, then checks if any keyword appears in the user's task:
+
+| Tool Name | Extracted Keywords | Task | Match? |
+|-----------|--------------------|------|--------|
+| `web-search` | `web`, `search` | "**Search** for the latest trends" | Yes -- "search" found in task |
+| `data-analyzer` | `data`, `analyzer` | "Search for the latest trends" | No -- neither keyword in task |
+| `code_review` | `code`, `review` | "**Review** my pull request" | Yes -- "review" found in task |
+
+In this example, the task contains "Search" which matches `web-search`, so the LLM requests a tool call. After the tool executes, the LLM is re-invoked -- since no more matching tools remain, it produces a final response summarizing the results. This makes every execution reproducible and safe for testing and CI.
 
 ```bash
 curl -s -X POST http://localhost:5000/api/v1/agents/<agent-id>/run \
@@ -413,11 +421,20 @@ curl -s http://localhost:5000/api/v1/agents/<agent-id>/executions \
 {
   "items": [
     {
-      "id": "x9y0z1a2-...",
+      "executionId": "x9y0z1a2-...",
       "agentId": "e5f6g7h8-...",
       "task": "Search for the latest trends in AI agents",
       "model": "gpt-4o",
-      "finalResponse": "Based on the tool results:...",
+      "finalResponse": "Based on the tool results:\n- Mock result for web-search with arguments: ...\nTask completed successfully.",
+      "toolCalls": [
+        {
+          "toolCallId": "call_abc123def456",
+          "toolName": "web-search",
+          "arguments": "{\"input\": \"Search for the latest trends in AI agents\"}",
+          "result": "Mock result for web-search with arguments: ..."
+        }
+      ],
+      "messages": ["...full conversation history..."],
       "createdAt": "2026-03-27T10:00:02Z"
     }
   ],
