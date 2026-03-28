@@ -8,15 +8,16 @@ from sqlalchemy.exc import IntegrityError
 from agent_platform.data_models.agent import AgentCreate, AgentResponse, AgentUpdate
 from agent_platform.data_models.pagination import encode_cursor
 from agent_platform.db.models.agent import Agent
-from agent_platform.db.models.tool import Tool
 from agent_platform.exceptions import (
     AgentAlreadyExistsError,
     AgentNotFoundError,
+    InvalidCursorError,
     ToolNotFoundError,
 )
 from agent_platform.repositories.agent_repository import AgentRepository
 from agent_platform.repositories.tool_repository import ToolRepository
 from agent_platform.services.agent_service import AgentService
+from tests.services.conftest import make_tool
 
 
 @pytest.fixture()
@@ -32,22 +33,6 @@ def tool_repo() -> AsyncMock:
 @pytest.fixture()
 def service(repo: AsyncMock, tool_repo: AsyncMock) -> AgentService:
     return AgentService(repo, tool_repo)
-
-
-def _make_tool(
-    tool_id: str = "t1",
-    tenant_id: str = "tenant_1",
-    name: str = "web-search",
-    description: str | None = "Search the web",
-) -> MagicMock:
-    tool = MagicMock(spec=Tool)
-    tool.id = tool_id
-    tool.tenant_id = tenant_id
-    tool.name = name
-    tool.description = description
-    tool.created_at = datetime(2026, 1, 1, tzinfo=UTC)
-    tool.updated_at = datetime(2026, 1, 1, tzinfo=UTC)
-    return tool
 
 
 def _make_agent(
@@ -95,7 +80,7 @@ async def test_create_agent_no_tools(
 async def test_create_agent_with_tools(
     service: AgentService, repo: AsyncMock, tool_repo: AsyncMock
 ) -> None:
-    tool = _make_tool()
+    tool = make_tool()
     tool_repo.get_by_ids.return_value = [tool]
     repo.create.return_value = _make_agent(tools=[tool])
 
@@ -115,6 +100,33 @@ async def test_create_agent_invalid_tool_ids(service: AgentService, tool_repo: A
         await service.create_agent(
             "tenant_1", AgentCreate(name="my-agent", role="assistant", tool_ids=["nonexistent"])
         )
+
+
+@pytest.mark.asyncio
+async def test_create_agent_partial_tool_ids(service: AgentService, tool_repo: AsyncMock) -> None:
+    tool_repo.get_by_ids.return_value = [make_tool("t1")]
+
+    with pytest.raises(ToolNotFoundError):
+        await service.create_agent(
+            "tenant_1",
+            AgentCreate(name="my-agent", role="assistant", tool_ids=["t1", "t2"]),
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_agent_passes_tenant_id(service: AgentService, repo: AsyncMock) -> None:
+    repo.create.return_value = _make_agent()
+
+    await service.create_agent(
+        "tenant_1", AgentCreate(name="my-agent", role="assistant", description="desc")
+    )
+
+    created_agent = repo.create.call_args[0][0]
+    assert isinstance(created_agent, Agent)
+    assert created_agent.tenant_id == "tenant_1"
+    assert created_agent.name == "my-agent"
+    assert created_agent.role == "assistant"
+    assert created_agent.description == "desc"
 
 
 @pytest.mark.asyncio
@@ -217,6 +229,12 @@ async def test_list_agents_with_tool_name(service: AgentService, repo: AsyncMock
     assert call_kwargs["tool_name"] == "web-search"
 
 
+@pytest.mark.asyncio
+async def test_list_agents_with_invalid_cursor(service: AgentService) -> None:
+    with pytest.raises(InvalidCursorError):
+        await service.list_agents("tenant_1", cursor="not-valid-base64!!")
+
+
 # ---------------------------------------------------------------------------
 # update_agent
 # ---------------------------------------------------------------------------
@@ -271,7 +289,7 @@ async def test_update_agent_clear_description(service: AgentService, repo: Async
 async def test_update_agent_tools(
     service: AgentService, repo: AsyncMock, tool_repo: AsyncMock
 ) -> None:
-    tool = _make_tool()
+    tool = make_tool()
     tool_repo.get_by_ids.return_value = [tool]
     agent = _make_agent()
     repo.get_by_id.return_value = agent
@@ -286,7 +304,7 @@ async def test_update_agent_tools(
 async def test_update_agent_clear_tools(
     service: AgentService, repo: AsyncMock, tool_repo: AsyncMock
 ) -> None:
-    agent = _make_agent(tools=[_make_tool()])
+    agent = _make_agent(tools=[make_tool()])
     repo.get_by_id.return_value = agent
     repo.update.return_value = agent
 
