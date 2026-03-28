@@ -14,6 +14,7 @@ from agent_platform.data_models.execution import ExecutionResponse
 from agent_platform.data_models.pagination import PaginatedResponse
 from agent_platform.data_models.run import ChatMessage, ToolCallRecord
 from agent_platform.exceptions import AgentNotFoundError, ExecutionNotFoundError, InvalidCursorError
+from tests.routers.conftest import TENANT_ID
 
 _CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -34,18 +35,12 @@ def _make_response(**overrides: object) -> ExecutionResponse:
 
 
 @pytest.fixture()
-def mock_service() -> AsyncMock:
-    return AsyncMock()
-
-
-@pytest.fixture()
 def client(mock_service: AsyncMock) -> TestClient:
     app = FastAPI()
     app.include_router(agent_executions_router, prefix="/api/v1")
     app.include_router(executions_router, prefix="/api/v1")
     app.dependency_overrides[get_execution_service] = lambda: mock_service
-    app.dependency_overrides[get_current_tenant_id] = lambda: "tenant_1"
-
+    app.dependency_overrides[get_current_tenant_id] = lambda: TENANT_ID
     return TestClient(app)
 
 
@@ -81,7 +76,7 @@ class TestGetExecution:
 
         client.get("/api/v1/executions/exec-1")
 
-        mock_service.get_execution.assert_awaited_once_with("tenant_1", "exec-1")
+        mock_service.get_execution.assert_awaited_once_with(TENANT_ID, "exec-1")
 
     def test_tenant_isolation(self, client: TestClient, mock_service: AsyncMock) -> None:
         mock_service.get_execution.side_effect = ExecutionNotFoundError
@@ -89,9 +84,7 @@ class TestGetExecution:
         resp = client.get("/api/v1/executions/exec-owned-by-other-tenant")
 
         assert resp.status_code == status.HTTP_404_NOT_FOUND
-        mock_service.get_execution.assert_awaited_once_with(
-            "tenant_1", "exec-owned-by-other-tenant"
-        )
+        mock_service.get_execution.assert_awaited_once_with(TENANT_ID, "exec-owned-by-other-tenant")
 
     def test_includes_tool_calls(self, client: TestClient, mock_service: AsyncMock) -> None:
         mock_service.get_execution.return_value = _make_response(
@@ -181,7 +174,7 @@ class TestListExecutions:
 
         mock_service.list_executions.assert_awaited_once()
         call_kwargs = mock_service.list_executions.call_args.kwargs
-        assert call_kwargs["tenant_id"] == "tenant_1"
+        assert call_kwargs["tenant_id"] == TENANT_ID
         assert call_kwargs["agent_id"] == "my-agent"
 
     def test_default_limit(self, client: TestClient, mock_service: AsyncMock) -> None:
