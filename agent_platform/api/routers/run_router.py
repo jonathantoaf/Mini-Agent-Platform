@@ -17,7 +17,18 @@ from agent_platform.services.run.run_service import RunService
 router = APIRouter(prefix="/agents", tags=["Run Agent"])
 
 
-@router.post("/{agent_id}/run", response_model=RunResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{agent_id}/run",
+    response_model=RunResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Run an agent",
+    description="Execute an agent with a task using the specified model.",
+    responses={
+        400: {"description": "Invalid model, prompt injection detected, or tool not assigned"},
+        404: {"description": "Agent not found"},
+        500: {"description": "Execution exceeded maximum iterations"},
+    },
+)
 async def run_agent(
     tenant_id: TenantId,
     agent_id: str,

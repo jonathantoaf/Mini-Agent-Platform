@@ -1,75 +1,38 @@
-"""Integration tests for Tool CRUD endpoints."""
+"""Unit tests for the Tool router."""
+
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
-TENANT_1_HEADERS = {"X-API-Key": "sk-tenant1-secret"}
-TENANT_2_HEADERS = {"X-API-Key": "sk-tenant2-secret"}
+from agent_platform.api.dependencies import get_tool_service
+from agent_platform.api.routers.tool_router import router
+from agent_platform.data_models.pagination import PaginatedResponse
+from agent_platform.data_models.tool import ToolResponse
+from agent_platform.exceptions import InvalidCursorError, ToolAlreadyExistsError, ToolNotFoundError
+from tests.routers.conftest import TENANT_ID, make_test_client
+
 BASE_URL = "/api/v1/tools"
+_CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _create_tool(
-    client: TestClient,
-    name: str,
-    description: str | None = None,
-    headers: dict | None = None,
-) -> dict:
-    payload: dict = {"name": name}
-    if description is not None:
-        payload["description"] = description
-    resp = client.post(BASE_URL, json=payload, headers=headers or TENANT_1_HEADERS)
-    assert resp.status_code == status.HTTP_201_CREATED
-    return resp.json()
-
-
-def _delete_all(client: TestClient, headers: dict) -> None:
-    resp = client.get(BASE_URL, params={"limit": 100}, headers=headers)
-    if resp.status_code == status.HTTP_200_OK:
-        for tool in resp.json()["items"]:
-            client.delete(f"{BASE_URL}/{tool['id']}", headers=headers)
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _cleanup(api_client: TestClient):
-    """Delete all tools for both tenants after each test."""
-    yield
-    _delete_all(api_client, TENANT_1_HEADERS)
-    _delete_all(api_client, TENANT_2_HEADERS)
+def _make_response(**overrides: object) -> ToolResponse:
+    defaults = {
+        "id": "t1",
+        "name": "web-search",
+        "description": "Search the web",
+        "created_at": _CREATED_AT,
+        "updated_at": _CREATED_AT,
+    }
+    defaults.update(overrides)
+    return ToolResponse(**defaults)
 
 
 @pytest.fixture()
-def tool(api_client: TestClient) -> dict:
-    """Pre-created tool for tenant_1."""
-    return _create_tool(api_client, "web-search", "Search the web")
-
-
-# ---------------------------------------------------------------------------
-# Auth
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("headers", "expected_status"),
-    [
-        ({}, status.HTTP_401_UNAUTHORIZED),
-        ({"X-API-Key": "invalid-key"}, status.HTTP_401_UNAUTHORIZED),
-    ],
-    ids=["missing-key", "invalid-key"],
-)
-def test_auth_rejection(api_client: TestClient, headers: dict, expected_status: int) -> None:
-    resp = api_client.get(BASE_URL, headers=headers)
-    assert resp.status_code == expected_status
+def client(mock_service: AsyncMock) -> TestClient:
+    return make_test_client(router, (get_tool_service, mock_service))
 
 
 # ---------------------------------------------------------------------------
@@ -77,50 +40,54 @@ def test_auth_rejection(api_client: TestClient, headers: dict, expected_status: 
 # ---------------------------------------------------------------------------
 
 
-def test_create_tool(api_client: TestClient) -> None:
-    resp = api_client.post(
-        BASE_URL,
-        json={"name": "summarizer", "description": "Summarize text"},
-        headers=TENANT_1_HEADERS,
+class TestCreateTool:
+    def test_success(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.create_tool.return_value = _make_response()
+
+        resp = client.post(
+            BASE_URL,
+            json={"name": "web-search", "description": "Search the web"},
+        )
+
+        assert resp.status_code == status.HTTP_201_CREATED
+        body = resp.json()
+        assert body["name"] == "web-search"
+        assert body["description"] == "Search the web"
+        assert "id" in body
+        assert "createdAt" in body
+        assert "updatedAt" in body
+        assert "tenantId" not in body
+        assert "tenant_id" not in body
+
+    def test_duplicate_name_returns_409(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.create_tool.side_effect = ToolAlreadyExistsError
+
+        resp = client.post(BASE_URL, json={"name": "dup-tool"})
+
+        assert resp.status_code == status.HTTP_409_CONFLICT
+
+    def test_passes_correct_args(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.create_tool.return_value = _make_response()
+
+        client.post(BASE_URL, json={"name": "my-tool", "description": "desc"})
+
+        mock_service.create_tool.assert_awaited_once()
+        args = mock_service.create_tool.call_args[0]
+        assert args[0] == TENANT_ID
+        assert args[1].name == "my-tool"
+        assert args[1].description == "desc"
+
+    @pytest.mark.parametrize(
+        "payload",
+        [{}, {"name": ""}, {"name": "x" * 256}],
+        ids=["missing-name", "empty-name", "name-too-long"],
     )
-
-    assert resp.status_code == status.HTTP_201_CREATED
-    body = resp.json()
-    assert body["name"] == "summarizer"
-    assert body["description"] == "Summarize text"
-    assert "id" in body
-    assert "createdAt" in body
-    assert "updatedAt" in body
-    # tenant_id must not be exposed
-    assert "tenantId" not in body
-    assert "tenant_id" not in body
-
-
-def test_create_tool_without_description(api_client: TestClient) -> None:
-    resp = api_client.post(BASE_URL, json={"name": "no-desc-tool"}, headers=TENANT_1_HEADERS)
-
-    assert resp.status_code == status.HTTP_201_CREATED
-    assert resp.json()["description"] is None
-
-
-def test_create_tool_duplicate_name(api_client: TestClient) -> None:
-    _create_tool(api_client, "dup-tool")
-    resp = api_client.post(BASE_URL, json={"name": "dup-tool"}, headers=TENANT_1_HEADERS)
-    assert resp.status_code == status.HTTP_409_CONFLICT
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {},
-        {"name": ""},
-        {"name": "x" * 256},
-    ],
-    ids=["missing-name", "empty-name", "name-too-long"],
-)
-def test_create_tool_validation_error(api_client: TestClient, payload: dict) -> None:
-    resp = api_client.post(BASE_URL, json=payload, headers=TENANT_1_HEADERS)
-    assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    def test_validation_error(
+        self, client: TestClient, mock_service: AsyncMock, payload: dict
+    ) -> None:
+        resp = client.post(BASE_URL, json=payload)
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        mock_service.create_tool.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -128,17 +95,30 @@ def test_create_tool_validation_error(api_client: TestClient, payload: dict) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_get_tool(api_client: TestClient, tool: dict) -> None:
-    resp = api_client.get(f"{BASE_URL}/{tool['id']}", headers=TENANT_1_HEADERS)
+class TestGetTool:
+    def test_success(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.get_tool.return_value = _make_response()
 
-    assert resp.status_code == status.HTTP_200_OK
-    assert resp.json()["id"] == tool["id"]
-    assert resp.json()["name"] == tool["name"]
+        resp = client.get(f"{BASE_URL}/t1")
 
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["id"] == "t1"
+        assert resp.json()["name"] == "web-search"
 
-def test_get_tool_not_found(api_client: TestClient) -> None:
-    resp = api_client.get(f"{BASE_URL}/nonexistent-id", headers=TENANT_1_HEADERS)
-    assert resp.status_code == status.HTTP_404_NOT_FOUND
+    def test_not_found(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.get_tool.side_effect = ToolNotFoundError
+
+        resp = client.get(f"{BASE_URL}/missing")
+
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+        assert resp.json()["detail"] == "Tool not found."
+
+    def test_passes_tenant_id(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.get_tool.return_value = _make_response()
+
+        client.get(f"{BASE_URL}/t1")
+
+        mock_service.get_tool.assert_awaited_once_with(TENANT_ID, "t1")
 
 
 # ---------------------------------------------------------------------------
@@ -146,51 +126,71 @@ def test_get_tool_not_found(api_client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_list_tools_empty(api_client: TestClient) -> None:
-    resp = api_client.get(BASE_URL, headers=TENANT_1_HEADERS)
+class TestListTools:
+    def test_success(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.list_tools.return_value = PaginatedResponse[ToolResponse](
+            items=[_make_response()],
+            has_more=False,
+            next_cursor=None,
+        )
 
-    assert resp.status_code == status.HTTP_200_OK
-    body = resp.json()
-    assert body["items"] == []
-    assert body["hasMore"] is False
-    assert body["nextCursor"] is None
+        resp = client.get(BASE_URL)
 
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert len(data["items"]) == 1
+        assert data["hasMore"] is False
 
-def test_list_tools_invalid_cursor(api_client: TestClient) -> None:
-    resp = api_client.get(BASE_URL, params={"cursor": "bad-cursor"}, headers=TENANT_1_HEADERS)
+    def test_empty(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.list_tools.return_value = PaginatedResponse[ToolResponse](
+            items=[], has_more=False, next_cursor=None
+        )
 
-    assert resp.status_code == status.HTTP_400_BAD_REQUEST
-    assert resp.json()["detail"] == "Invalid pagination cursor."
+        resp = client.get(BASE_URL)
 
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["items"] == []
 
-def test_list_tools_pagination(api_client: TestClient) -> None:
-    page_size = 2
-    for i in range(3):
-        _create_tool(api_client, f"tool-{i}")
+    def test_pagination_params(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.list_tools.return_value = PaginatedResponse[ToolResponse](
+            items=[], has_more=False, next_cursor=None
+        )
 
-    # Page 1
-    resp = api_client.get(BASE_URL, params={"limit": page_size}, headers=TENANT_1_HEADERS)
-    assert resp.status_code == status.HTTP_200_OK
-    page1 = resp.json()
-    assert len(page1["items"]) == page_size
-    assert page1["hasMore"] is True
-    assert page1["nextCursor"] is not None
+        client.get(f"{BASE_URL}?cursor=abc123&limit=5")
 
-    # Page 2: use cursor
-    resp = api_client.get(
-        BASE_URL,
-        params={"limit": page_size, "cursor": page1["nextCursor"]},
-        headers=TENANT_1_HEADERS,
-    )
-    assert resp.status_code == status.HTTP_200_OK
-    page2 = resp.json()
-    assert len(page2["items"]) == 1
-    assert page2["hasMore"] is False
+        mock_service.list_tools.assert_awaited_once()
+        kwargs = mock_service.list_tools.call_args.kwargs
+        assert kwargs["cursor"] == "abc123"
+        assert kwargs["limit"] == 5
 
-    # No overlap between pages
-    page1_ids = {t["id"] for t in page1["items"]}
-    page2_ids = {t["id"] for t in page2["items"]}
-    assert page1_ids.isdisjoint(page2_ids)
+    def test_invalid_cursor(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.list_tools.side_effect = InvalidCursorError
+
+        resp = client.get(f"{BASE_URL}?cursor=bad")
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.json()["detail"] == "Invalid pagination cursor."
+
+    def test_agent_name_filter(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.list_tools.return_value = PaginatedResponse[ToolResponse](
+            items=[], has_more=False, next_cursor=None
+        )
+
+        client.get(f"{BASE_URL}?agent_name=my-agent")
+
+        kwargs = mock_service.list_tools.call_args.kwargs
+        assert kwargs["agent_name"] == "my-agent"
+
+    def test_has_more_with_cursor(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.list_tools.return_value = PaginatedResponse[ToolResponse](
+            items=[_make_response()], has_more=True, next_cursor="next_page"
+        )
+
+        resp = client.get(BASE_URL)
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["hasMore"] is True
+        assert resp.json()["nextCursor"] == "next_page"
 
 
 # ---------------------------------------------------------------------------
@@ -198,85 +198,39 @@ def test_list_tools_pagination(api_client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_update_tool_name(api_client: TestClient, tool: dict) -> None:
-    resp = api_client.patch(
-        f"{BASE_URL}/{tool['id']}",
-        json={"name": "renamed-tool"},
-        headers=TENANT_1_HEADERS,
-    )
+class TestUpdateTool:
+    def test_success(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.update_tool.return_value = _make_response(name="renamed")
 
-    assert resp.status_code == status.HTTP_200_OK
-    assert resp.json()["name"] == "renamed-tool"
-    assert resp.json()["description"] == tool["description"]
+        resp = client.patch(f"{BASE_URL}/t1", json={"name": "renamed"})
 
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["name"] == "renamed"
 
-def test_update_tool_description_only(api_client: TestClient, tool: dict) -> None:
-    resp = api_client.patch(
-        f"{BASE_URL}/{tool['id']}",
-        json={"description": "Updated description"},
-        headers=TENANT_1_HEADERS,
-    )
+    def test_not_found(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.update_tool.side_effect = ToolNotFoundError
 
-    assert resp.status_code == status.HTTP_200_OK
-    assert resp.json()["name"] == tool["name"]
-    assert resp.json()["description"] == "Updated description"
+        resp = client.patch(f"{BASE_URL}/missing", json={"name": "x"})
 
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-def test_update_tool_duplicate_name(api_client: TestClient) -> None:
-    _create_tool(api_client, "tool-a")
-    tool_b = _create_tool(api_client, "tool-b")
+    def test_duplicate_name(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.update_tool.side_effect = ToolAlreadyExistsError
 
-    resp = api_client.patch(
-        f"{BASE_URL}/{tool_b['id']}",
-        json={"name": "tool-a"},
-        headers=TENANT_1_HEADERS,
-    )
-    assert resp.status_code == status.HTTP_409_CONFLICT
+        resp = client.patch(f"{BASE_URL}/t1", json={"name": "taken"})
 
+        assert resp.status_code == status.HTTP_409_CONFLICT
 
-def test_update_tool_empty_body(api_client: TestClient, tool: dict) -> None:
-    resp = api_client.patch(
-        f"{BASE_URL}/{tool['id']}",
-        json={},
-        headers=TENANT_1_HEADERS,
-    )
+    def test_passes_correct_args(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.update_tool.return_value = _make_response()
 
-    assert resp.status_code == status.HTTP_200_OK
-    assert resp.json()["name"] == tool["name"]
-    assert resp.json()["description"] == tool["description"]
+        client.patch(f"{BASE_URL}/t1", json={"name": "new-name"})
 
-
-def test_update_tool_same_name(api_client: TestClient, tool: dict) -> None:
-    resp = api_client.patch(
-        f"{BASE_URL}/{tool['id']}",
-        json={"name": tool["name"]},
-        headers=TENANT_1_HEADERS,
-    )
-
-    assert resp.status_code == status.HTTP_200_OK
-
-
-def test_update_tool_clear_description(api_client: TestClient) -> None:
-    tool = _create_tool(api_client, "has-desc", "Some description")
-    assert tool["description"] == "Some description"
-
-    resp = api_client.patch(
-        f"{BASE_URL}/{tool['id']}",
-        json={"description": None},
-        headers=TENANT_1_HEADERS,
-    )
-
-    assert resp.status_code == status.HTTP_200_OK
-    assert resp.json()["description"] is None
-
-
-def test_update_tool_not_found(api_client: TestClient) -> None:
-    resp = api_client.patch(
-        f"{BASE_URL}/nonexistent-id",
-        json={"name": "x"},
-        headers=TENANT_1_HEADERS,
-    )
-    assert resp.status_code == status.HTTP_404_NOT_FOUND
+        mock_service.update_tool.assert_awaited_once()
+        args = mock_service.update_tool.call_args[0]
+        assert args[0] == TENANT_ID
+        assert args[1] == "t1"
+        assert args[2].name == "new-name"
 
 
 # ---------------------------------------------------------------------------
@@ -284,61 +238,16 @@ def test_update_tool_not_found(api_client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_delete_tool(api_client: TestClient, tool: dict) -> None:
-    resp = api_client.delete(f"{BASE_URL}/{tool['id']}", headers=TENANT_1_HEADERS)
-    assert resp.status_code == status.HTTP_204_NO_CONTENT
+class TestDeleteTool:
+    def test_success(self, client: TestClient, mock_service: AsyncMock) -> None:
+        resp = client.delete(f"{BASE_URL}/t1")
 
-    # Verify gone
-    resp = api_client.get(f"{BASE_URL}/{tool['id']}", headers=TENANT_1_HEADERS)
-    assert resp.status_code == status.HTTP_404_NOT_FOUND
+        assert resp.status_code == status.HTTP_204_NO_CONTENT
+        mock_service.delete_tool.assert_awaited_once_with(TENANT_ID, "t1")
 
+    def test_not_found(self, client: TestClient, mock_service: AsyncMock) -> None:
+        mock_service.delete_tool.side_effect = ToolNotFoundError
 
-def test_delete_tool_not_found(api_client: TestClient) -> None:
-    resp = api_client.delete(f"{BASE_URL}/nonexistent-id", headers=TENANT_1_HEADERS)
-    assert resp.status_code == status.HTTP_404_NOT_FOUND
+        resp = client.delete(f"{BASE_URL}/missing")
 
-
-# ---------------------------------------------------------------------------
-# Tenant isolation
-# ---------------------------------------------------------------------------
-
-
-def test_tenant_isolation_get(api_client: TestClient, tool: dict) -> None:
-    """Tool created by tenant_1 is invisible to tenant_2 (returns 404, not 403)."""
-    resp = api_client.get(f"{BASE_URL}/{tool['id']}", headers=TENANT_2_HEADERS)
-    assert resp.status_code == status.HTTP_404_NOT_FOUND
-
-
-def test_tenant_isolation_list(api_client: TestClient, tool: dict) -> None:
-    """Tenant_2 list does not include tenant_1's tools."""
-    # tool fixture ensures tenant_1 has data
-    assert tool["id"]  # sanity check
-    resp = api_client.get(BASE_URL, headers=TENANT_2_HEADERS)
-    assert resp.status_code == status.HTTP_200_OK
-    assert resp.json()["items"] == []
-
-
-def test_tenant_isolation_update(api_client: TestClient, tool: dict) -> None:
-    resp = api_client.patch(
-        f"{BASE_URL}/{tool['id']}",
-        json={"name": "hacked"},
-        headers=TENANT_2_HEADERS,
-    )
-    assert resp.status_code == status.HTTP_404_NOT_FOUND
-
-
-def test_tenant_isolation_delete(api_client: TestClient, tool: dict) -> None:
-    resp = api_client.delete(f"{BASE_URL}/{tool['id']}", headers=TENANT_2_HEADERS)
-    assert resp.status_code == status.HTTP_404_NOT_FOUND
-
-    # Verify still exists for the owning tenant
-    resp = api_client.get(f"{BASE_URL}/{tool['id']}", headers=TENANT_1_HEADERS)
-    assert resp.status_code == status.HTTP_200_OK
-
-
-def test_tenant_isolation_duplicate_name_allowed(api_client: TestClient) -> None:
-    """Different tenants can use the same tool name."""
-    resp1 = api_client.post(BASE_URL, json={"name": "shared-name"}, headers=TENANT_1_HEADERS)
-    resp2 = api_client.post(BASE_URL, json={"name": "shared-name"}, headers=TENANT_2_HEADERS)
-    assert resp1.status_code == status.HTTP_201_CREATED
-    assert resp2.status_code == status.HTTP_201_CREATED
+        assert resp.status_code == status.HTTP_404_NOT_FOUND

@@ -4,12 +4,11 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import FastAPI, status
+from fastapi import status
 from fastapi.testclient import TestClient
 
 from agent_platform.api.dependencies import get_run_service
 from agent_platform.api.routers.run_router import router
-from agent_platform.auth.api_key import get_current_tenant_id
 from agent_platform.data_models.run import RunResponse, ToolCallRecord
 from agent_platform.exceptions import (
     AgentNotFoundError,
@@ -18,6 +17,7 @@ from agent_platform.exceptions import (
     PromptInjectionError,
     ToolNotAssignedError,
 )
+from tests.routers.conftest import TENANT_ID, make_test_client
 
 _CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -38,19 +38,8 @@ def _make_run_response(**overrides: object) -> RunResponse:
 
 
 @pytest.fixture()
-def mock_service() -> AsyncMock:
-    return AsyncMock()
-
-
-@pytest.fixture()
 def client(mock_service: AsyncMock) -> TestClient:
-    """Create a minimal FastAPI app with the run router and mocked dependencies."""
-    app = FastAPI()
-    app.include_router(router, prefix="/api/v1")
-    app.dependency_overrides[get_run_service] = lambda: mock_service
-    app.dependency_overrides[get_current_tenant_id] = lambda: "tenant_1"
-
-    return TestClient(app)
+    return make_test_client(router, (get_run_service, mock_service))
 
 
 class TestRunAgentEndpoint:
@@ -153,7 +142,7 @@ class TestRunAgentServiceCall:
 
         mock_service.run_agent.assert_awaited_once()
         call_args = mock_service.run_agent.call_args
-        assert call_args[0][0] == "tenant_1"  # tenant_id
-        assert call_args[0][1] == "my-agent-id"  # agent_id
+        assert call_args[0][0] == TENANT_ID
+        assert call_args[0][1] == "my-agent-id"
         assert call_args[0][2].task == "Do something"
         assert call_args[0][2].model == "gpt-4o-mini"

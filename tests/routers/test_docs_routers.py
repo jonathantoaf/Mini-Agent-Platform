@@ -47,6 +47,10 @@ def test_openapi(api_client: TestClient) -> None:
     assert json_content["info"] == {
         "title": settings.app_name,
         "version": settings.app_version,
+        "description": (
+            "Multi-tenant API for managing AI agents with configurable tools "
+            "and mock LLM execution."
+        ),
     }
 
 

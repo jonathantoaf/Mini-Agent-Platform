@@ -12,6 +12,8 @@ router = APIRouter(
 @router.get(
     path="/",
     response_model=InfoResponse,
+    summary="API info",
+    description="Returns the API name and version.",
 )
 def index() -> InfoResponse:
     settings = get_settings()
