@@ -293,6 +293,16 @@ API keys are mapped to tenant IDs via a JSON configuration loaded once at startu
 
 ## API Reference
 
+### Interactive Demo
+
+The fastest way to see every API feature in action -- including error handling, tenant isolation, and multi-step tool calling:
+
+```bash
+bash scripts/demo.sh
+```
+
+The script runs 34 use cases end-to-end (CRUD, agent execution, pagination, prompt injection, cross-tenant isolation, auth errors), prints every request and response, and cleans up after itself.
+
 ### Endpoints
 
 | Method | Path | Description | Success | Errors |
@@ -491,6 +501,16 @@ uv run alembic upgrade head
 # 5. Start the server
 uv run python main.py
 ```
+
+### Run the Full Demo
+
+Once the server is running, execute the demo script to see every feature and edge case in action -- CRUD, multi-step tool calling, prompt injection guardrails, tenant isolation, pagination, and error handling:
+
+```bash
+bash scripts/demo.sh
+```
+
+The script creates resources, demonstrates all use cases (including expected errors), and cleans up after itself.
 
 ### Verify
 
