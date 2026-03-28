@@ -17,6 +17,12 @@ executions_router = APIRouter(prefix="/executions", tags=["Execution History"])
 @agent_executions_router.get(
     "/{agent_id}/executions",
     response_model=PaginatedResponse[ExecutionResponse],
+    summary="List agent executions",
+    description="Retrieve paginated execution history for an agent.",
+    responses={
+        400: {"description": "Invalid pagination cursor"},
+        404: {"description": "Agent not found"},
+    },
 )
 async def list_executions(
     tenant_id: TenantId,
@@ -52,6 +58,9 @@ async def list_executions(
 @executions_router.get(
     "/{execution_id}",
     response_model=ExecutionResponse,
+    summary="Get an execution",
+    description="Retrieve a single execution record by ID.",
+    responses={404: {"description": "Execution not found"}},
 )
 async def get_execution(
     tenant_id: TenantId,

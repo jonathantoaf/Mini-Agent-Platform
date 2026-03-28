@@ -13,7 +13,14 @@ from agent_platform.settings import get_settings
 router = APIRouter(prefix="/tools", tags=["Tools"])
 
 
-@router.post("", response_model=ToolResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ToolResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a tool",
+    description="Register a new tool for the authenticated tenant.",
+    responses={409: {"description": "Tool with this name already exists"}},
+)
 async def create_tool(
     tenant_id: TenantId,
     data: ToolCreate,
@@ -28,7 +35,13 @@ async def create_tool(
         ) from None
 
 
-@router.get("", response_model=PaginatedResponse[ToolResponse])
+@router.get(
+    "",
+    response_model=PaginatedResponse[ToolResponse],
+    summary="List tools",
+    description="Retrieve a paginated list of tools for the authenticated tenant.",
+    responses={400: {"description": "Invalid pagination cursor"}},
+)
 async def list_tools(
     tenant_id: TenantId,
     service: Annotated[ToolService, Depends(get_tool_service)],
@@ -55,7 +68,13 @@ async def list_tools(
         ) from None
 
 
-@router.get("/{tool_id}", response_model=ToolResponse)
+@router.get(
+    "/{tool_id}",
+    response_model=ToolResponse,
+    summary="Get a tool",
+    description="Retrieve a single tool by ID.",
+    responses={404: {"description": "Tool not found"}},
+)
 async def get_tool(
     tenant_id: TenantId,
     tool_id: str,
@@ -70,7 +89,16 @@ async def get_tool(
         ) from None
 
 
-@router.patch("/{tool_id}", response_model=ToolResponse)
+@router.patch(
+    "/{tool_id}",
+    response_model=ToolResponse,
+    summary="Update a tool",
+    description="Partially update an existing tool.",
+    responses={
+        404: {"description": "Tool not found"},
+        409: {"description": "Tool with this name already exists"},
+    },
+)
 async def update_tool(
     tenant_id: TenantId,
     tool_id: str,
@@ -91,7 +119,13 @@ async def update_tool(
         ) from None
 
 
-@router.delete("/{tool_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{tool_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a tool",
+    description="Delete a tool by ID.",
+    responses={404: {"description": "Tool not found"}},
+)
 async def delete_tool(
     tenant_id: TenantId,
     tool_id: str,

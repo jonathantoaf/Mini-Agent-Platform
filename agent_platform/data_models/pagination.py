@@ -59,7 +59,7 @@ def decode_cursor(cursor: str) -> CursorData:
 class PaginatedResponse[T](SharedBaseModel):
     """Generic paginated response wrapper."""
 
-    items: list[T]
+    items: list[T] = Field(description="Page of results")
     next_cursor: str | None = Field(None, description="Cursor for the next page")
     has_more: bool = Field(False, description="Whether there are more items")
 

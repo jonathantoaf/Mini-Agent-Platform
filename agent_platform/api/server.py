@@ -94,6 +94,10 @@ def create_app() -> FastAPI:
     _app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
+        description=(
+            "Multi-tenant API for managing AI agents with configurable tools "
+            "and mock LLM execution."
+        ),
         root_path=settings.server_root_path,
         docs_url=None,
         redoc_url=None,
