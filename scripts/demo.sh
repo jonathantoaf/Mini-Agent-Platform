@@ -146,6 +146,25 @@ fi
 echo -e "${GREEN}✓ Server is healthy${NC}"
 echo ""
 
+# ---------------------------------------------------------------------------
+# Clean slate: delete all existing resources so the demo is idempotent
+# ---------------------------------------------------------------------------
+echo -e "${BLUE}Cleaning existing data for a fresh run...${NC}"
+for KEY in "$TENANT1_KEY" "$TENANT2_KEY"; do
+  # Delete all agents first (FK dependency on tools)
+  AGENT_IDS=$(curl -s -H "X-API-Key: $KEY" "$API_V1/agents?limit=100" | jq -r '.items[].id // empty' 2>/dev/null)
+  for AID in $AGENT_IDS; do
+    curl -s -X DELETE "$API_V1/agents/$AID" -H "X-API-Key: $KEY" >/dev/null 2>&1 || true
+  done
+  # Then delete all tools
+  TOOL_IDS=$(curl -s -H "X-API-Key: $KEY" "$API_V1/tools?limit=100" | jq -r '.items[].id // empty' 2>/dev/null)
+  for TID in $TOOL_IDS; do
+    curl -s -X DELETE "$API_V1/tools/$TID" -H "X-API-Key: $KEY" >/dev/null 2>&1 || true
+  done
+done
+echo -e "${GREEN}✓ Clean slate${NC}"
+echo ""
+
 # =====================================================================
 # ACT 1: TOOL CRUD
 # =====================================================================

@@ -29,8 +29,5 @@ tests
 # Environment variables
 .env
 
-# Alembic versions (apply separately)
-alembic/versions/
-
 # Claude
 .claude/

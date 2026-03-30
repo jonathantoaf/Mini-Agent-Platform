@@ -252,7 +252,9 @@ API keys map to tenant IDs via a JSON config loaded once at startup. Every reque
 bash scripts/demo.sh
 ```
 
-This runs 34 use cases end-to-end (CRUD, agent execution, pagination, prompt injection, cross-tenant isolation, auth errors), prints every request/response, and cleans up after itself.
+This runs 34 use cases end-to-end across both tenants (`sk-tenant1-secret` and `sk-tenant2-secret`), prints every request/response, and cleans up after itself. The script is idempotent — it wipes existing data before starting, so it can be re-run at any time.
+
+Covers: tool CRUD, agent CRUD with tool assignments, cross-entity filtering, multi-step agent execution with mock LLM tool calling, prompt injection guardrail, execution history, multi-tenant isolation (Tenant 1 cannot see Tenant 2's resources), authentication errors, cursor-based pagination, and error handling (400, 401, 404, 409).
 
 ### Endpoints
 
@@ -408,14 +410,15 @@ curl -s http://localhost:5000/api/v1/executions/<execution-id> \
 
 ### Docker Compose
 
-`docker-compose.yml` runs two services:
+`docker-compose.yml` runs three services (single `docker-compose up --build`):
 
 - **postgres**: PostgreSQL 16 Alpine with health checks (`pg_isready`) and a persistent volume
-- **app**: Multi-stage Dockerfile, waits for Postgres health, runs `alembic upgrade head && python main.py`
+- **migrate**: Runs `alembic upgrade head` as postgres superuser, then exits. Creates tables, the `app_user` role, and RLS policies.
+- **app**: Starts only after migrations complete successfully. Connects as `app_user` (non-superuser) so RLS is enforced.
 
 Two database roles, deliberately:
-- `postgres` (superuser): runs migrations, creates `app_user` role and RLS policies
-- `app_user` (non-superuser): runtime connections where RLS is actually enforced
+- `postgres` (superuser): used by the `migrate` service for DDL privileges
+- `app_user` (non-superuser): used by the `app` service where RLS is actually enforced
 
 ### Multi-Stage Dockerfile
 

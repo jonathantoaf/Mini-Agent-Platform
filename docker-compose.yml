@@ -15,23 +15,29 @@ services:
       timeout: 5s
       retries: 5
 
-  app:
+  migrate:
     build: .
+    image: agent-platform:local
+    environment:
+      DATABASE_MIGRATION_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/agent_platform
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: alembic upgrade head
+
+  app:
+    image: agent-platform:local
     ports:
       - "5000:5000"
     environment:
       # App connects as app_user (non-superuser) so RLS policies are enforced
       DATABASE_URL: postgresql+asyncpg://app_user:app_user@postgres:5432/agent_platform
-      # Migrations connect as postgres (superuser) for DDL privileges
-      DATABASE_MIGRATION_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/agent_platform
       API_KEYS: '{"sk-tenant1-secret": "tenant_1", "sk-tenant2-secret": "tenant_2"}'
       APP_NAME: agent-platform
       LOG_LEVEL: INFO
     depends_on:
-      postgres:
-        condition: service_healthy
-    # Run migrations as postgres (superuser), then start app as app_user
-    command: sh -c "alembic upgrade head && python main.py"
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:
